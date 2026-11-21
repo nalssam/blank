@@ -1,0 +1,90 @@
+name: ppt-live-test
+
+# Opens the converted deck in real desktop PowerPoint on a Windows runner and records
+# whether the HTML actually runs inside the slides.
+on:
+  push:
+    branches: [ccr-fa7c416c-gy15et]
+    paths:
+      - 'html-in-ppt/**'
+      - '.github/workflows/ppt-live-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ppt-live-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  powerpoint:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - product: O365ProPlusRetail
+            channel: Current
+          - product: ProPlus2024Volume
+            channel: PerpetualVL2024
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PowerPoint (${{ matrix.product }})
+        shell: powershell
+        run: ./html-in-ppt/ci/install-office.ps1 -Product '${{ matrix.product }}' -Channel '${{ matrix.channel }}'
+
+      - name: Start the local add-in server (https://localhost:3000)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force C:\live | Out-Null
+          $cert = New-SelfSignedCertificate -DnsName 'localhost' -CertStoreLocation 'Cert:\LocalMachine\My' -NotAfter (Get-Date).AddDays(3) -KeyExportPolicy Exportable -KeyAlgorithm RSA -KeyLength 2048
+          $pw = ConvertTo-SecureString -String 'livehtml' -Force -AsPlainText
+          Export-PfxCertificate -Cert $cert -FilePath C:\live\localhost.pfx -Password $pw -CryptoAlgorithmOption AES256_SHA256 | Out-Null
+          Export-Certificate -Cert $cert -FilePath C:\live\localhost.cer | Out-Null
+          Import-Certificate -FilePath C:\live\localhost.cer -CertStoreLocation 'Cert:\LocalMachine\Root' | Out-Null
+          # manifest that points at the local server
+          $tpl = Get-Content html-in-ppt\addin\manifest.template.xml -Raw -Encoding UTF8
+          $m = $tpl.Replace('{{HOST}}', 'https://localhost:3000').Replace('{{ID}}', '6f2b8c1e-4d7a-4e55-9a3b-2c8f5d1e7a90').Replace('{{VERSION}}', '1.0.0.0')
+          [IO.File]::WriteAllText('C:\live\manifest.xml', $m, (New-Object Text.UTF8Encoding($false)))
+          Start-Process node -ArgumentList 'html-in-ppt\ci\server.js', 'html-in-ppt\addin', 'C:\live\localhost.pfx', 'C:\live\server.log' -WindowStyle Hidden -RedirectStandardOutput C:\live\server.out -RedirectStandardError C:\live\server.err
+          Start-Sleep -Seconds 4
+          $r = Invoke-WebRequest https://localhost:3000/index.html -UseBasicParsing
+          "server check: $($r.StatusCode) $($r.Content.Length) bytes"
+          Get-Content C:\live\server.err -ErrorAction SilentlyContinue
+
+      - name: Run the deck in PowerPoint
+        shell: powershell
+        run: ./html-in-ppt/ci/run-powerpoint.ps1 -Pptx html-in-ppt\demo\live-demo.pptx -Manifest C:\live\manifest.xml -OutDir C:\live\out
+
+      - name: Add-in server log (what the PowerPoint webview did)
+        if: always()
+        shell: powershell
+        run: |
+          if (Test-Path C:\live\server.log) { Get-Content C:\live\server.log } else { 'no server log' }
+          '---- stderr'; Get-Content C:\live\server.err -ErrorAction SilentlyContinue
+
+      - name: Verdict
+        if: always()
+        shell: powershell
+        run: |
+          $log = if (Test-Path C:\live\server.log) { Get-Content C:\live\server.log } else { @() }
+          $ready = @($log | Select-String '"ev":"office-ready"').Count
+          $deck = @($log | Select-String '"ev":"deck-ready"').Count
+          $clicks = @($log | Select-String '"ev":"deck-click"').Count
+          $inputs = @($log | Select-String '"ev":"deck-input"').Count
+          "office-ready=$ready deck-ready=$deck deck-click=$clicks deck-input=$inputs"
+          if ($ready -lt 1 -or $deck -lt 1) { Write-Error 'The add-in did not run inside PowerPoint'; exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ppt-live-${{ matrix.product }}
+          path: |
+            C:\live\out
+            C:\live\server.log
+            C:\live\manifest.xml
+          if-no-files-found: warn
