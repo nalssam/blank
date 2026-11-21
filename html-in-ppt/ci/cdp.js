@@ -30,7 +30,7 @@ const { chromium } = require('playwright-core');
           other = other || f;
         }
         deck = deck || other;
-        info.host.frames = page.frames().length;
+        info.host.frames = page.frames().map((f) => (f === page.mainFrame() ? 'main' : f.url().slice(0, 48)));
         if (deck) {
           info.deck = await deck.evaluate(() => {
             const q = (s) => document.querySelectorAll(s).length;
