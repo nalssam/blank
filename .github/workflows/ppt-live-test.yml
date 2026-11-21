@@ -176,3 +176,92 @@ jobs:
             C:\live\run.err
             C:\live\logs
           if-no-files-found: warn
+
+  hosted:
+    # Real hosting: the add-in page and the skill zip come from the Vercel preview of the
+    # bunpil_pack pull request branch, so this is the distributed skill end to end.
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      ORIGIN: https://nalssam-bunpil-git-ccr-fa7c416c-gy15et-nalssam.vercel.app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PowerPoint
+        shell: powershell
+        run: ./html-in-ppt/ci/install-office.ps1 -Product 'ProPlus2024Volume' -Channel 'PerpetualVL2024' | Select-Object -Last 8
+
+      - name: Get the skill as distributed and build its template deck
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force C:\live\logs, C:\live\out | Out-Null
+          Invoke-WebRequest "$env:ORIGIN/app/skills/live-pptx.zip" -OutFile C:\live\live-pptx.zip -UseBasicParsing
+          Expand-Archive C:\live\live-pptx.zip -DestinationPath C:\live\skill -Force
+          Get-ChildItem C:\live\skill -Recurse -File | ForEach-Object { $_.FullName.Substring(14) }
+          function Run([string]$label, [string]$cmd) {
+            "### $label" | Add-Content C:\live\logs\build.txt
+            cmd /c "$cmd >> C:\live\logs\build.txt 2>&1"
+            "exit=$LASTEXITCODE" | Add-Content C:\live\logs\build.txt
+            if ($LASTEXITCODE -ne 0) { Get-Content C:\live\logs\build.txt -Encoding UTF8 -Tail 25; throw "$label failed ($LASTEXITCODE)" }
+          }
+          Run 'pip' 'python -m pip install --quiet python-pptx'
+          Run 'build' 'python C:\live\skill\live-pptx\scripts\build_live_pptx.py C:\live\skill\live-pptx\assets\deck-template.html -o C:\live\hosted.pptx --shots C:\live\out\preview'
+          Run 'qa' 'python C:\live\skill\live-pptx\scripts\qa_live_pptx.py C:\live\hosted.pptx'
+          'build ok'
+
+      - name: Register with the published one-liner
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:LIVEHTML_SITE = "$env:ORIGIN/live-html"
+          powershell -NoProfile -Command "irm $env:ORIGIN/live-html/register.ps1 | iex" *> C:\live\logs\oneliner.txt
+          # The published manifest names the production address, which only exists after the merge: point it at the preview.
+          $m = Join-Path $env:LOCALAPPDATA 'LiveHTML\manifest.xml'
+          $t = [IO.File]::ReadAllText($m)
+          [IO.File]::WriteAllText($m, $t.Replace('https://nalssam-bunpil.vercel.app', $env:ORIGIN), (New-Object Text.UTF8Encoding($false)))
+          (Select-String -Path $m -Pattern 'SourceLocation').Line
+          cmd /c "python C:\live\skill\live-pptx\scripts\register_addin.py --status >> C:\live\logs\oneliner.txt 2>&1"
+          "status exit=$LASTEXITCODE"
+          [Microsoft.Win32.Registry]::SetValue('HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments', '*', '--remote-debugging-port=9222 --remote-allow-origins=*')
+          cmd /c "npm install --prefix html-in-ppt\ci playwright-core --no-audit --no-fund > C:\live\logs\npm.txt 2>&1"
+          "npm exit=$LASTEXITCODE"
+
+      - name: Run the deck in PowerPoint (hosted page)
+        shell: powershell
+        run: |
+          . .\html-in-ppt\ci\lib.ps1
+          $child = Start-Process powershell -PassThru -WindowStyle Hidden -RedirectStandardOutput C:\live\run.out -RedirectStandardError C:\live\run.err -ArgumentList @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'html-in-ppt\ci\run-hosted.ps1', '-Pptx', 'C:\live\hosted.pptx', '-OutDir', 'C:\live\out')
+          $deadline = (Get-Date).AddMinutes(12)
+          $n = 0
+          while (-not $child.HasExited -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 30
+            $n++
+            Shot ("tick-{0:d2}" -f $n) 'C:\live\out' | Out-Null
+          }
+          if (-not $child.HasExited) { 'WATCHDOG: automation did not finish in time'; Windows 'watchdog'; Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue }
+          Get-Process POWERPNT -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Get-Content C:\live\run.out -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch '^SHOT ' -and $_ -notmatch 'class=(Shell_TrayWnd|EdgeUiInputTopWndClass|Progman|CASCADIA)' }
+
+      - name: Verdict
+        if: always()
+        shell: powershell
+        run: |
+          $out = if (Test-Path C:\live\run.out) { Get-Content C:\live\run.out } else { @() }
+          $loaded = @($out | Select-String '^DOM opened .*"edg":"Edg/.*"slide":1').Count
+          $flip = @($out | Select-String '^DOM edit slide 2 .*"flipsOpen":1').Count
+          $answer = @($out | Select-String '^DOM edit slide 4 .*"ok":1').Count
+          "VERDICT hosted page ran=$loaded edit-click-flip=$flip edit-click-answer=$answer"
+          if ($loaded -lt 1) { Write-Host '::error::The hosted add-in page did not run the deck inside PowerPoint'; exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ppt-live-hosted
+          path: |
+            C:\live\out
+            C:\live\hosted.pptx
+            C:\live\run.out
+            C:\live\run.err
+            C:\live\logs
+          if-no-files-found: warn
