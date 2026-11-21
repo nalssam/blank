@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live HTML</title>
+<script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#fff;font-family:"Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif}
+  #view{position:absolute;left:0;top:0;border:0;transform-origin:0 0;background:#fff}
+  #setup{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;background:#f4f1ea;color:#1d1b16}
+  #setup h1{font-size:22px;margin:0}
+  #setup p{font-size:14px;margin:0;color:#6b665c;max-width:520px;line-height:1.5}
+  #setup .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center}
+  #setup input[type=number]{width:70px;padding:8px;font-size:14px}
+  #setup button,#setup label.file{background:#1d1b16;color:#fff;border:0;border-radius:999px;padding:10px 20px;font-size:14px;cursor:pointer}
+  #msg{font-size:13px;color:#c2452d;min-height:18px}
+  #gear{position:absolute;right:6px;top:6px;width:26px;height:26px;border-radius:50%;border:0;background:#0002;color:#fff;font-size:14px;cursor:pointer;opacity:0;transition:opacity .2s;z-index:5}
+  body:hover #gear{opacity:.6}
+  #gear:hover{opacity:1}
+</style>
+</head>
+<body>
+<iframe id="view" sandbox="allow-scripts allow-forms allow-modals allow-popups" title="Live HTML"></iframe>
+<button id="gear" title="HTML 바꾸기">⚙</button>
+
+<div id="setup">
+  <h1>Live HTML</h1>
+  <p>이 슬라이드에서 실행할 HTML 파일을 고르세요. HTML은 프레젠테이션 파일 안에 저장되어, 인터넷 주소 없이도 함께 이동합니다.</p>
+  <div class="row">
+    <label class="file">HTML 파일 고르기<input id="file" type="file" accept=".html,.htm,text/html" hidden></label>
+    <span>슬라이드 번호 <input id="slideNo" type="number" min="1" value="1"></span>
+    <button id="cancel" type="button" style="background:#0000;color:#1d1b16;border:1px solid #1d1b16">닫기</button>
+  </div>
+  <div id="msg"></div>
+</div>
+
+<script>
+(function () {
+  var view = document.getElementById('view');
+  var setup = document.getElementById('setup');
+  var msg = document.getElementById('msg');
+  var state = { html: '', slide: 1, w: 1920, h: 1080 };
+  var settings = null;
+
+  function fit() {
+    var k = Math.min(window.innerWidth / state.w, window.innerHeight / state.h);
+    view.style.width = state.w + 'px';
+    view.style.height = state.h + 'px';
+    view.style.transform = 'translate(' + (window.innerWidth - state.w * k) / 2 + 'px,' +
+      (window.innerHeight - state.h * k) / 2 + 'px) scale(' + k + ')';
+  }
+  window.addEventListener('resize', fit);
+
+  // 덱이 "지금 몇 번 슬라이드인지" 알 수 있도록 맨 앞에 한 줄을 끼워 넣는다.
+  function inject(html, slide) {
+    var boot = '<script>window.__LIVE_SLIDE__=' + Number(slide) + ';<\/script>';
+    var m = /<head[^>]*>/i.exec(html);
+    if (m) return html.slice(0, m.index + m[0].length) + boot + html.slice(m.index + m[0].length);
+    return boot + html;
+  }
+
+  function render() {
+    if (!state.html) { setup.style.display = 'flex'; return; }
+    setup.style.display = 'none';
+    fit();
+    view.srcdoc = inject(state.html, state.slide);
+  }
+
+  function load() {
+    if (settings) {
+      state.html = settings.get('html') || '';
+      state.slide = settings.get('slide') || 1;
+      state.w = settings.get('width') || 1920;
+      state.h = settings.get('height') || 1080;
+    }
+    document.getElementById('slideNo').value = state.slide;
+    render();
+  }
+
+  function save() {
+    if (!settings) return;
+    settings.set('html', state.html);
+    settings.set('slide', state.slide);
+    settings.set('width', state.w);
+    settings.set('height', state.h);
+    settings.saveAsync(function (r) {
+      if (r.status !== 'succeeded') msg.textContent = '저장 실패: ' + (r.error && r.error.message);
+    });
+  }
+
+  document.getElementById('file').addEventListener('change', function () {
+    var f = this.files && this.files[0];
+    if (!f) return;
+    var rd = new FileReader();
+    rd.onload = function () {
+      state.html = String(rd.result);
+      state.slide = parseInt(document.getElementById('slideNo').value, 10) || 1;
+      save(); render();
+    };
+    rd.onerror = function () { msg.textContent = '파일을 읽지 못했습니다.'; };
+    rd.readAsText(f);
+  });
+  document.getElementById('gear').addEventListener('click', function () { msg.textContent = ''; setup.style.display = 'flex'; });
+  document.getElementById('cancel').addEventListener('click', function () { if (state.html) setup.style.display = 'none'; });
+
+  var started = false;
+  function start(inOffice) {
+    if (started) return; started = true;
+    if (inOffice) { try { settings = Office.context.document.settings; } catch (e) { settings = null; } }
+    load();
+  }
+  if (window.Office && Office.onReady) {
+    Office.onReady(function (info) { start(!!(info && info.host)); });
+  }
+  // Office 밖(브라우저에서 직접 열었을 때)에서도 동작 확인이 가능하도록.
+  setTimeout(function () { start(false); }, 4000);
+})();
+</script>
+</body>
+</html>
