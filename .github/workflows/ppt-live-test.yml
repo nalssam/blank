@@ -19,6 +19,7 @@ concurrency:
 
 jobs:
   powerpoint:
+    if: ${{ !contains(github.event.head_commit.message, '[hosted-only]') }}
     runs-on: windows-latest
     timeout-minutes: 50
     strategy:
@@ -186,12 +187,12 @@ jobs:
           if-no-files-found: warn
 
   hosted:
-    # Real hosting: the add-in page and the skill zip come from the Vercel preview of the
-    # bunpil_pack pull request branch, so this is the distributed skill end to end.
+    # Real hosting: the add-in page, the skill zip and the registration one-liner come from the PRODUCTION site
+    # (after the merge of bunpil_pack#1), so this is exactly what a teacher gets, end to end.
     runs-on: windows-latest
     timeout-minutes: 35
     env:
-      ORIGIN: https://nalssam-bunpil-git-ccr-fa7c416c-gy15et-nalssam.vercel.app
+      ORIGIN: https://nalssam-bunpil.vercel.app
     steps:
       - uses: actions/checkout@v4
 
@@ -221,13 +222,11 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $env:LIVEHTML_SITE = "$env:ORIGIN/live-html"
-          powershell -NoProfile -Command "irm $env:ORIGIN/live-html/register.ps1 | iex" *> C:\live\logs\oneliner.txt
-          # The published manifest names the production address, which only exists after the merge: point it at the preview.
+          # Exactly what a teacher types: the published one-liner with its default address (no override, no rewriting).
+          powershell -NoProfile -Command "irm https://nalssam-bunpil.vercel.app/live-html/register.ps1 | iex" *> C:\live\logs\oneliner.txt
           $m = Join-Path $env:LOCALAPPDATA 'LiveHTML\manifest.xml'
-          $t = [IO.File]::ReadAllText($m)
-          [IO.File]::WriteAllText($m, $t.Replace('https://nalssam-bunpil.vercel.app', $env:ORIGIN), (New-Object Text.UTF8Encoding($false)))
           (Select-String -Path $m -Pattern 'SourceLocation').Line
+          if (-not (Select-String -Path $m -Pattern 'https://nalssam-bunpil.vercel.app/live-html/app.html' -SimpleMatch -Quiet)) { throw 'the registered manifest does not point at the production page' }
           cmd /c "python C:\live\skill\live-pptx\scripts\register_addin.py --status >> C:\live\logs\oneliner.txt 2>&1"
           "status exit=$LASTEXITCODE"
           [Microsoft.Win32.Registry]::SetValue('HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments', '*', '--remote-debugging-port=9222 --remote-allow-origins=*')
