@@ -7,6 +7,7 @@
   D4 = Microsoft's template deck, control manifest id
   D5 = Microsoft's template deck, manifest pointing at a public https page
   U1 = our deck with an add-in id that is not registered (what an unprepared PC shows)
+  N1 = our deck with a registered add-in whose page cannot be reached (what an offline PC shows)
   Z1..Z5 = our deck with the HTML of slide 1 padded to 0.5 / 1 / 1.9 / 4 / 10 MB (settings size limit)
 """
 import sys
@@ -16,6 +17,7 @@ from pathlib import Path
 OURS = "6f2b8c1e-4d7a-4e55-9a3b-2c8f5d1e7a90"
 CONTROL = "0d1b6a3e-52a7-4b1c-9a39-7e2f4c1d8b55"
 PUBLIC = "3c9e2f71-8a44-4d0b-b6f5-1e7a90c2d4b8"
+DEAD = "5b7d9f13-2c4e-4a6b-8d0f-3a5c7e9b1d2f"
 ZERO = "00000000-0000-0000-0000-000000000000"
 
 
@@ -82,6 +84,9 @@ def main() -> None:
     rewrite(template, out / "D4.pptx", ZERO, CONTROL)
     rewrite(template, out / "D5.pptx", ZERO, PUBLIC)
     rewrite(deck, out / "U1.pptx", OURS, "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d")      # an id nobody registered
+    rewrite(deck, out / "N1.pptx", OURS, DEAD)                                        # registered, but the page is unreachable
+    (out / "manifest-dead.xml").write_text(
+        manifest(DEAD, "https://localhost:3999/index.html", "Live HTML unreachable"), encoding="utf-8")
     for label, size in (("Z1", 500_000), ("Z2", 1_000_000), ("Z3", 1_900_000), ("Z4", 4_000_000), ("Z5", 10_000_000)):
         pad_html(deck, out / f"{label}.pptx", size)
     (out / "manifest-control.xml").write_text(

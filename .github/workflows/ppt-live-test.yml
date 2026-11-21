@@ -27,6 +27,7 @@ jobs:
         include:
           - product: O365ProPlusRetail
             channel: Current
+            language: ko-kr                 # Korean UI, to see the messages teachers will see
           - product: ProPlus2024Volume
             channel: PerpetualVL2024
           - product: ProPlus2019Volume      # volume 2019 always uses the IE11 webview: only the notice must show
@@ -37,7 +38,7 @@ jobs:
 
       - name: Install PowerPoint (${{ matrix.product }})
         shell: powershell
-        run: ./html-in-ppt/ci/install-office.ps1 -Product '${{ matrix.product }}' -Channel '${{ matrix.channel }}' | Select-Object -Last 14
+        run: ./html-in-ppt/ci/install-office.ps1 -Product '${{ matrix.product }}' -Channel '${{ matrix.channel }}' -Language '${{ matrix.language || 'en-us' }}' | Select-Object -Last 14
 
       - name: Prepare the localhost certificate and the test manifest
         shell: powershell
@@ -77,6 +78,7 @@ jobs:
           $dev = 'HKCU:\SOFTWARE\Microsoft\Office\16.0\Wef\Developer'
           Set-ItemProperty -Path $dev -Name '0d1b6a3e-52a7-4b1c-9a39-7e2f4c1d8b55' -Value 'C:\live\variants\manifest-control.xml'
           Set-ItemProperty -Path $dev -Name '3c9e2f71-8a44-4d0b-b6f5-1e7a90c2d4b8' -Value 'C:\live\variants\manifest-public.xml'
+          Set-ItemProperty -Path $dev -Name '5b7d9f13-2c4e-4a6b-8d0f-3a5c7e9b1d2f' -Value 'C:\live\variants\manifest-dead.xml'
           'build ok'
 
       - name: Validate the manifests with Microsoft's validator

@@ -80,7 +80,7 @@ function Open-Deck([string]$path) {
 
 # Phase A: which link of the chain works?
 if ($Variants -and (Test-Path $Variants)) {
-    foreach ($d in 'D4', 'D5', 'D2', 'D3', 'U1', 'Z1', 'Z2', 'Z3', 'Z4', 'Z5') {
+    foreach ($d in 'D4', 'D5', 'D2', 'D3', 'U1', 'N1', 'Z1', 'Z2', 'Z3', 'Z4', 'Z5') {
         $f = Join-Path $Variants "$d.pptx"
         if (-not (Test-Path $f)) { continue }
         Mark "open-$d"
