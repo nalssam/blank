@@ -58,27 +58,33 @@ jobs:
       - name: Build the deck on Windows (converter, QA, registration)
         shell: powershell
         run: |
-          $ErrorActionPreference = 'Stop'
-          python --version
-          python -m pip install --quiet python-pptx
-          python html-in-ppt\scripts\build_live_pptx.py html-in-ppt\demo\deck.html -o C:\live\deck.pptx
-          if ($LASTEXITCODE -ne 0) { throw "build failed" }
-          python html-in-ppt\scripts\qa_live_pptx.py C:\live\deck.pptx
-          if ($LASTEXITCODE -ne 0) { throw "qa failed" }
-          python html-in-ppt\ci\make_variants.py C:\live\deck.pptx html-in-ppt\ci\ms-content-template.pptx C:\live\variants
-          python html-in-ppt\scripts\register_addin.py --manifest C:\live\manifest.xml
-          python html-in-ppt\scripts\register_addin.py --manifest C:\live\manifest.xml --status
+          New-Item -ItemType Directory -Force C:\live\logs | Out-Null
+          function Run([string]$label, [string]$cmd) {
+            "### $label" | Add-Content C:\live\logs\build.txt
+            cmd /c "$cmd >> C:\live\logs\build.txt 2>&1"
+            "exit=$LASTEXITCODE" | Add-Content C:\live\logs\build.txt
+            if ($LASTEXITCODE -ne 0) { Get-Content C:\live\logs\build.txt -Encoding UTF8 -Tail 25; throw "$label failed ($LASTEXITCODE)" }
+          }
+          Run 'python' 'python --version'
+          Run 'pip' 'python -m pip install --quiet python-pptx'
+          Run 'build' 'python html-in-ppt\scripts\build_live_pptx.py html-in-ppt\demo\deck.html -o C:\live\deck.pptx'
+          Run 'qa' 'python html-in-ppt\scripts\qa_live_pptx.py C:\live\deck.pptx'
+          Run 'variants' 'python html-in-ppt\ci\make_variants.py C:\live\deck.pptx html-in-ppt\ci\ms-content-template.pptx C:\live\variants'
+          Run 'register' 'python html-in-ppt\scripts\register_addin.py --manifest C:\live\manifest.xml'
+          Run 'status' 'python html-in-ppt\scripts\register_addin.py --manifest C:\live\manifest.xml --status'
           # control manifests for the diagnosis matrix (registered directly)
           $dev = 'HKCU:\SOFTWARE\Microsoft\Office\16.0\Wef\Developer'
           Set-ItemProperty -Path $dev -Name '0d1b6a3e-52a7-4b1c-9a39-7e2f4c1d8b55' -Value 'C:\live\variants\manifest-control.xml'
           Set-ItemProperty -Path $dev -Name '3c9e2f71-8a44-4d0b-b6f5-1e7a90c2d4b8' -Value 'C:\live\variants\manifest-public.xml'
+          'build ok'
 
       - name: Validate the manifests with Microsoft's validator
         shell: powershell
         continue-on-error: true
         run: |
-          npx --yes office-addin-manifest validate C:\live\manifest.xml 2>&1 | Select-Object -Last 25
-          npx --yes office-addin-manifest validate C:\live\variants\manifest-control.xml 2>&1 | Select-Object -Last 12
+          cmd /c "npx --yes office-addin-manifest validate C:\live\manifest.xml > C:\live\logs\validate-ours.txt 2>&1"
+          cmd /c "npx --yes office-addin-manifest validate C:\live\variants\manifest-control.xml > C:\live\logs\validate-control.txt 2>&1"
+          Get-Content C:\live\logs\validate-ours.txt -Tail 12
 
       - name: Run the deck in PowerPoint
         shell: powershell
@@ -145,4 +151,5 @@ jobs:
             C:\live\deck.pptx
             C:\live\run.out
             C:\live\run.err
+            C:\live\logs
           if-no-files-found: warn

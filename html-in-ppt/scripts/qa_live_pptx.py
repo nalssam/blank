@@ -36,6 +36,19 @@ PHONE = re.compile(r"(?<!\d)01[016789]-?(?!0000)\d{3,4}-?\d{4}(?!\d)")
 errors, warns, info = [], [], []
 
 
+def count_sections(html: str) -> int:
+    def blank(m):
+        return re.sub(r"[^\n]", " ", m.group(0))
+    t = re.sub(r"<!--.*?-->", blank, html, flags=re.S)
+    t = re.sub(r"(?<=<script)\b[^>]*>.*?(?=</script\s*>)", blank, t, flags=re.S | re.I)
+    t = re.sub(r"(?<=<style)\b[^>]*>.*?(?=</style\s*>)", blank, t, flags=re.S | re.I)
+    n = 0
+    for m in re.finditer(r"<section\b[^>]*\bclass\s*=\s*(\"[^\"]*\"|'[^']*')[^>]*>", t, re.I):
+        if "slide" in m.group(1).strip("\"'").split():
+            n += 1
+    return n
+
+
 def rels_of(z: zipfile.ZipFile, part: str) -> dict:
     d, b = posixpath.split(part)
     path = f"{d}/_rels/{b}.rels"
@@ -50,7 +63,20 @@ def rels_of(z: zipfile.ZipFile, part: str) -> dict:
     return out
 
 
+
+def _console() -> None:
+    """출력을 다른 프로그램이 받아 갈 때(파이프)는 UTF-8 로 내보내고, 어떤 경우에도 글자 때문에 멈추지 않게 한다."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream.isatty():
+                stream.reconfigure(errors="replace")
+            else:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
 def main() -> int:
+    _console()
     if len(sys.argv) != 2:
         print(__doc__)
         return 2
@@ -58,7 +84,7 @@ def main() -> int:
     try:
         z = zipfile.ZipFile(path)
     except (OSError, zipfile.BadZipFile) as e:
-        print(f"오류: 파일을 열 수 없습니다 — {e}")
+        print(f"오류: 파일을 열 수 없습니다 - {e}")
         return 1
     names = set(z.namelist())
     for n in sorted(names):
@@ -66,7 +92,7 @@ def main() -> int:
             try:
                 ET.fromstring(z.read(n))
             except ET.ParseError as e:
-                errors.append(f"{n}: XML 형식 오류 — {e}")
+                errors.append(f"{n}: XML 형식 오류 - {e}")
     if errors:
         return report(path)
 
@@ -119,7 +145,7 @@ def main() -> int:
             if need not in props:
                 errors.append(f"{tag}: 설정값 '{need}' 이 없다")
         if size > LIMIT:
-            errors.append(f"{tag}: 설정값이 {size / 1e6:.2f}MB — 한도(약 1.9MB)를 넘는다")
+            errors.append(f"{tag}: 설정값이 {size / 1e6:.2f}MB - 한도(약 1.9MB)를 넘는다")
         html = props.get("html") or ""
         if isinstance(html, str) and html:
             htmls.add(hashlib.sha256(html.encode("utf-8", "surrogatepass")).hexdigest())
@@ -135,8 +161,11 @@ def main() -> int:
         if any(t == RT_NOTES for t, _ in srels.values()):
             notes += 1
         if idx == 1 and isinstance(html, str):
+            sections = count_sections(html)
+            if sections and sections != len(slides):
+                warns.append(f"HTML 의 <section class=\"slide\"> 는 {sections}개인데 슬라이드는 {len(slides)}장이다")
             if "__LIVE_SLIDE__" not in html and "liveSlide" not in html:
-                warns.append("HTML 이 window.__LIVE_SLIDE__ 를 읽지 않는다 — 모든 슬라이드가 같은 화면일 수 있다")
+                warns.append("HTML 이 window.__LIVE_SLIDE__ 를 읽지 않는다 - 모든 슬라이드가 같은 화면일 수 있다")
             hosts = sorted({m.group(1) for m in re.finditer(r"https?://([A-Za-z0-9.-]+)", html)}
                            - {"www.w3.org"})
             if hosts:
@@ -144,7 +173,7 @@ def main() -> int:
             for m in RRN.finditer(html):
                 errors.append(f"HTML 에 주민등록번호 형식이 있다: {m.group(0)[:8]}…")
             for m in PHONE.finditer(html):
-                warns.append(f"HTML 에 휴대전화 번호 형식이 있다: {m.group(0)} — 실제 번호인지 확인")
+                warns.append(f"HTML 에 휴대전화 번호 형식이 있다: {m.group(0)} - 실제 번호인지 확인")
 
     if numbers and numbers != list(range(1, len(slides) + 1)):
         warns.append(f"슬라이드 번호 순서가 1..{len(slides)} 가 아니다: {numbers}")
@@ -161,7 +190,7 @@ def report(path: Path) -> int:
         print("주의:", x)
     for x in errors:
         print("오류:", x)
-    print(f"{path.name} 점검 — 오류 {len(errors)}건, 주의 {len(warns)}건")
+    print(f"{path.name} 점검 - 오류 {len(errors)}건, 주의 {len(warns)}건")
     return 1 if errors else 0
 
 

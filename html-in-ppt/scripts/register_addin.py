@@ -88,7 +88,20 @@ def mac_file(addin: str) -> Path:
     return mac_dir() / f"{addin}.manifest.xml"
 
 
+
+def _console() -> None:
+    """출력을 다른 프로그램이 받아 갈 때(파이프)는 UTF-8 로 내보내고, 어떤 경우에도 글자 때문에 멈추지 않게 한다."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream.isatty():
+                stream.reconfigure(errors="replace")
+            else:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
 def main() -> int:
+    _console()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST, help="등록할 manifest.xml (기본: 스킬의 assets/manifest.xml)")
     g = ap.add_mutually_exclusive_group()

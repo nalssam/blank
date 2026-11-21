@@ -213,16 +213,30 @@ class Inliner:
         return text
 
 
+def mask(html: str) -> str:
+    """주석·스크립트·스타일 안쪽을 같은 길이의 공백으로 가린다(그 안의 '<section' 글자를 세지 않도록)."""
+    def blank(m):
+        return re.sub(r"[^\n]", " ", m.group(0))
+    out = re.sub(r"<!--.*?-->", blank, html, flags=re.S)
+    out = re.sub(r"(?<=<script)\b[^>]*>.*?(?=</script\s*>)", blank, out, flags=re.S | re.I)
+    out = re.sub(r"(?<=<style)\b[^>]*>.*?(?=</style\s*>)", blank, out, flags=re.S | re.I)
+    return out
+
+
+def slide_starts(html: str) -> list:
+    return [m for m in SECTION_RE.finditer(mask(html)) if "slide" in m.group(1).strip("\"'").split()]
+
+
 def count_slides(html: str) -> int:
-    return sum(1 for m in SECTION_RE.finditer(html) if "slide" in m.group(1).strip("\"'").split())
+    return len(slide_starts(html))
 
 
 def extract_notes(html: str, n: int) -> list:
     """슬라이드별 발표자 노트. data-notes 속성이 먼저, 없으면 <aside class="notes">."""
     notes = [""] * n
-    starts = [m for m in SECTION_RE.finditer(html) if "slide" in m.group(1).strip("\"'").split()]
+    starts = slide_starts(html)
     for i, m in enumerate(starts[:n]):
-        tag = m.group(0)
+        tag = html[m.start():m.end()]
         end = starts[i + 1].start() if i + 1 < len(starts) else len(html)
         body = html[m.end():end]
         dm = re.search(r"\bdata-notes\s*=\s*(\"([^\"]*)\"|'([^']*)')", tag, re.I | re.S)
@@ -371,7 +385,7 @@ def frame_xml(shape_id: int, rid: str, cx: int, cy: int, title: str) -> etree._E
 
 def slide_titles(html: str, n: int) -> list:
     titles = []
-    starts = [m for m in SECTION_RE.finditer(html) if "slide" in m.group(1).strip("\"'").split()]
+    starts = slide_starts(html)
     for i in range(n):
         title = ""
         if i < len(starts):
@@ -392,13 +406,13 @@ def build(html: str, slides: int, w: int, h: int, pngs: list, notes: list, title
     for i in range(1, slides + 1):
         slide = prs.slides.add_slide(blank)
         png = pngs[i - 1]
-        # 1) 미리보기 그림 — 추가 기능을 쓸 수 없는 환경에서 보이는 대체 화면
+        # 1) 미리보기 그림 - 추가 기능을 쓸 수 없는 환경에서 보이는 대체 화면
         pic = slide.shapes.add_picture(io.BytesIO(png), 0, 0, prs.slide_width, prs.slide_height)
         pic.name = f"Live HTML 미리보기 {i}"
         pic._element.nvPicPr.cNvPr.set("descr", titles[i - 1])
         image_part = slide.part.related_part(pic._element.blipFill.blip.rEmbed)
 
-        # 2) webextension 파트 — HTML 원문과 작은 미리보기가 여기에 들어간다
+        # 2) webextension 파트 - HTML 원문과 작은 미리보기가 여기에 들어간다
         props = {"html": html, "slide": i, "width": w, "height": h, "poster": poster_data_uri(png)}
         per_slide = max(per_slide, sum(len(json.dumps(v)) for v in props.values()))
         we_part = Part(PackURI(f"/ppt/webextensions/webextension{i}.xml"), CT_WEBEXT, prs.part.package, b"")
@@ -422,7 +436,20 @@ def build(html: str, slides: int, w: int, h: int, pngs: list, notes: list, title
     return {"per_slide_bytes": per_slide}
 
 
+
+def _console() -> None:
+    """출력을 다른 프로그램이 받아 갈 때(파이프)는 UTF-8 로 내보내고, 어떤 경우에도 글자 때문에 멈추지 않게 한다."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream.isatty():
+                stream.reconfigure(errors="replace")
+            else:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
 def main() -> int:
+    _console()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("html", type=Path, help="슬라이드 덱 HTML")
     ap.add_argument("-o", "--out", type=Path, help="출력 pptx 경로 (기본: HTML 과 같은 이름)")
@@ -449,7 +476,10 @@ def main() -> int:
         args.save_html.parent.mkdir(parents=True, exist_ok=True)
         args.save_html.write_text(html, encoding="utf-8")
 
-    n = args.slides or count_slides(html)
+    found = count_slides(html)
+    n = args.slides or found
+    if args.slides and found and args.slides != found:
+        print(f"주의: --slides {args.slides} 인데 HTML 의 <section class=\"slide\"> 는 {found}개입니다.")
     if n < 1:
         ap.error('슬라이드를 찾지 못했습니다. <section class="slide"> 로 나누거나 --slides 로 장수를 주세요.')
     if "__LIVE_SLIDE__" not in html:
