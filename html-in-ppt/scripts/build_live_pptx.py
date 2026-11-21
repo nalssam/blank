@@ -251,6 +251,14 @@ def extract_notes(html: str, n: int) -> list:
     return notes
 
 
+_XML_BAD = re.compile("[^\t\n\r\u0020-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
+
+
+def xml_safe(text: str) -> str:
+    """XML 에 쓸 수 없는 제어 문자를 뺀다(제목·노트처럼 pptx 본문에 직접 들어가는 글자용)."""
+    return _XML_BAD.sub("", text)
+
+
 def with_slide_marker(html: str, slide: int) -> str:
     """추가 기능이 실행할 때와 똑같은 방식으로 슬라이드 번호를 끼워 넣는다(미리보기 촬영용)."""
     boot = f"<script>window.__LIVE_SLIDE__={int(slide)};</script>"
@@ -393,7 +401,7 @@ def slide_titles(html: str, n: int) -> list:
             hm = re.search(r"<h[12]\b[^>]*>(.*?)</h[12]\s*>", html[starts[i].end():end], re.I | re.S)
             if hm:
                 title = " ".join(htmllib.unescape(re.sub(r"<[^>]+>", " ", hm.group(1))).split())
-        titles.append(title or f"슬라이드 {i + 1}")
+        titles.append(xml_safe(title)[:200] or f"슬라이드 {i + 1}")
     return titles
 
 
@@ -493,7 +501,7 @@ def main() -> int:
     if size > WARN_BYTES:
         print(f"주의: HTML 이 {size / 1e6:.2f}MB 로 큽니다. 슬라이드마다 한 벌씩 들어가 파일이 커지고 열 때 느릴 수 있습니다.")
 
-    notes = extract_notes(html, n)
+    notes = [xml_safe(x) for x in extract_notes(html, n)]
     titles = slide_titles(html, n)
     out = args.out or args.html.with_suffix(".pptx")
 

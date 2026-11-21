@@ -36,7 +36,7 @@ jobs:
         shell: powershell
         run: ./html-in-ppt/ci/install-office.ps1 -Product '${{ matrix.product }}' -Channel '${{ matrix.channel }}' | Select-Object -Last 14
 
-      - name: Start the local add-in server (https://localhost:3000)
+      - name: Prepare the localhost certificate and the test manifest
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -49,11 +49,9 @@ jobs:
           $tpl = Get-Content html-in-ppt\addin\manifest.template.xml -Raw -Encoding UTF8
           $m = $tpl.Replace('{{HOST}}', 'https://localhost:3000').Replace('{{ID}}', '6f2b8c1e-4d7a-4e55-9a3b-2c8f5d1e7a90').Replace('{{VERSION}}', '1.0.0.0')
           [IO.File]::WriteAllText('C:\live\manifest.xml', $m, (New-Object Text.UTF8Encoding($false)))
-          Start-Process node -ArgumentList 'html-in-ppt\ci\server.js', 'html-in-ppt\addin', 'C:\live\localhost.pfx', 'C:\live\server.log' -WindowStyle Hidden -RedirectStandardOutput C:\live\server.out -RedirectStandardError C:\live\server.err
-          Start-Sleep -Seconds 4
-          $r = Invoke-WebRequest https://localhost:3000/index.html -UseBasicParsing
-          "server check: $($r.StatusCode) $($r.Content.Length) bytes"
-          Get-Content C:\live\server.err -ErrorAction SilentlyContinue
+          # WebView2 diagnostics for elevated processes: only the HKLM policy is honoured
+          [Microsoft.Win32.Registry]::SetValue('HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments', '*', '--remote-debugging-port=9222 --remote-allow-origins=*')
+          'certificate and manifest ready'
 
       - name: Build the deck on Windows (converter, QA, registration)
         shell: powershell
@@ -93,6 +91,11 @@ jobs:
           # screenshots, so a blocking dialog shows up in the results instead of hanging the job.
           . .\html-in-ppt\ci\lib.ps1
           New-Item -ItemType Directory -Force C:\live\out | Out-Null
+          # The add-in server has to be started in this step: processes of an earlier step are gone by now.
+          $server = Start-Process node -PassThru -WindowStyle Hidden -RedirectStandardOutput C:\live\server.out -RedirectStandardError C:\live\server.err -ArgumentList 'html-in-ppt\ci\server.js', 'html-in-ppt\addin', 'C:\live\localhost.pfx', 'C:\live\server.log'
+          Start-Sleep -Seconds 4
+          $r = Invoke-WebRequest https://localhost:3000/index.html -UseBasicParsing
+          "server check: $($r.StatusCode) $($r.Content.Length) bytes"
           $manifest = Join-Path $env:LOCALAPPDATA 'LiveHTML\manifest.xml'
           $child = Start-Process powershell -PassThru -WindowStyle Hidden -RedirectStandardOutput C:\live\run.out -RedirectStandardError C:\live\run.err -ArgumentList @(
             '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'html-in-ppt\ci\run-powerpoint.ps1',
@@ -112,6 +115,7 @@ jobs:
           }
           Get-Process POWERPNT -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
           "automation finished: exited=$($child.HasExited)"
+          Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
 
       - name: Summary
         if: always()

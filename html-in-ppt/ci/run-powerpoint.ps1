@@ -7,7 +7,8 @@ param(
     [Parameter(Mandatory = $true)][string]$OutDir,
     [string]$Variants = '',
     [int]$Slides = 5,
-    [int]$LoadWait = 10
+    [int]$LoadWait = 10,
+    [switch]$ShellLaunch
 )
 $ErrorActionPreference = 'Continue'
 New-Item -ItemType Directory -Force $OutDir | Out-Null
@@ -39,9 +40,23 @@ Set-ItemProperty -Path "$dev\RuntimeLogging" -Name '(default)' -Value $rtlog
 "---- developer registry"
 Get-Item $dev | Select-Object -ExpandProperty Property | ForEach-Object { "  $_ = $((Get-ItemProperty $dev).$_)" }
 
-# 2) Start PowerPoint through COM.
+# What Windows itself reports about connectivity (Office refuses to load add-ins when it thinks it is offline).
+"---- network"
+try {
+    $nlm = [Activator]::CreateInstance([Type]::GetTypeFromCLSID([Guid]'{DCB00C01-570F-4A9B-8D69-199FDBA5723B}'))
+    "  NLM IsConnected=$($nlm.IsConnected) IsConnectedToInternet=$($nlm.IsConnectedToInternet) Connectivity=$($nlm.GetConnectivity())"
+} catch { "  NLM failed: $($_.Exception.Message)" }
+try { Get-NetConnectionProfile | ForEach-Object { "  profile '$($_.Name)' category=$($_.NetworkCategory) v4=$($_.IPv4Connectivity) v6=$($_.IPv6Connectivity)" } } catch { "  profiles failed: $_" }
+
+# 2) Start PowerPoint: either purely through COM (-Embedding) or the way a person does, then attach.
 Mark 'before-powerpoint'
 $ppt = $null
+if ($ShellLaunch) {
+    "launch mode: shell"
+    Start-Process 'C:\Program Files\Microsoft Office\root\Office16\POWERPNT.EXE'
+    Start-Sleep -Seconds 12
+    Shot '00-shell-launched'; Windows 'shell launched'
+} else { "launch mode: COM" }
 try { $ppt = New-Object -ComObject PowerPoint.Application } catch { "COM create failed: $_" }
 if (-not $ppt) { Shot '00-no-com'; Windows 'no com'; exit 1 }
 try { $ppt.Visible = -1 } catch { "Visible failed: $_" }
@@ -87,6 +102,11 @@ if (-not $pres) { "Could not open the presentation"; try { $ppt.Quit() } catch {
 "Opened: $($pres.FullName)  slides=$($pres.Slides.Count)  readOnly=$($pres.ReadOnly)"
 Start-Sleep -Seconds ($LoadWait + 10)
 Shot '02-opened'; Windows 'opened'
+"---- CDP view of the add-in webview"
+try {
+    $targets = Invoke-RestMethod 'http://127.0.0.1:9222/json/list' -TimeoutSec 5
+    $targets | ForEach-Object { "  target type=$($_.type) url=$(([string]$_.url).Substring(0, [Math]::Min(120, ([string]$_.url).Length)))" }
+} catch { "  CDP not reachable: $($_.Exception.Message)" }
 foreach ($s in $pres.Slides) {
     foreach ($sh in $s.Shapes) {
         "slide $($s.SlideIndex): shape '$($sh.Name)' type=$($sh.Type) $([int]$sh.Left),$([int]$sh.Top) $([int]$sh.Width)x$([int]$sh.Height)"
