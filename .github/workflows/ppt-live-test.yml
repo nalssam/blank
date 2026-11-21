@@ -38,7 +38,7 @@ jobs:
 
       - name: Install PowerPoint (${{ matrix.product }})
         shell: powershell
-        run: ./html-in-ppt/ci/install-office.ps1 -Product '${{ matrix.product }}' -Channel '${{ matrix.channel }}' -Language '${{ matrix.language || 'en-us' }}' | Select-Object -Last 14
+        run: ./html-in-ppt/ci/install-office.ps1 -Product '${{ matrix.product }}' -Channel '${{ matrix.channel }}' -Language '${{ matrix.language || 'en-us' }}'
 
       - name: Prepare the localhost certificate and the test manifest
         shell: powershell
@@ -190,7 +190,7 @@ jobs:
 
       - name: Install PowerPoint
         shell: powershell
-        run: ./html-in-ppt/ci/install-office.ps1 -Product 'ProPlus2024Volume' -Channel 'PerpetualVL2024' | Select-Object -Last 8
+        run: ./html-in-ppt/ci/install-office.ps1 -Product 'ProPlus2024Volume' -Channel 'PerpetualVL2024'
 
       - name: Get the skill as distributed and build its template deck
         shell: powershell

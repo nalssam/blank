@@ -27,7 +27,6 @@ $ex
 </Configuration>
 "@
 Set-Content -Path "$dir\config.xml" -Value $xml -Encoding ASCII
-Get-Content "$dir\config.xml"
 
 $sw = [Diagnostics.Stopwatch]::StartNew()
 Invoke-WebRequest 'https://officecdn.microsoft.com/pr/wsus/setup.exe' -OutFile "$dir\setup.exe"
@@ -43,7 +42,7 @@ if (-not (Test-Path $exe)) {
 }
 "PowerPoint: $((Get-Item $exe).VersionInfo.FileVersion)"
 Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration' |
-    Select-Object ProductReleaseIds, Platform, VersionToReport, CDNBaseUrl, AudienceId | Format-List
+    ForEach-Object { "ProductReleaseIds=$($_.ProductReleaseIds) Platform=$($_.Platform) Version=$($_.VersionToReport)" }
 
 # First-run UI that would block automation.
 $hkcu = 'HKCU:\Software\Microsoft\Office\16.0'
@@ -69,4 +68,4 @@ Set-Dword "$hkcu\Common\Licensing" 'DisableActivationUI' 1
 
 "WebView2 runtime:"
 Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction SilentlyContinue |
-    Select-Object name, pv | Format-List
+    ForEach-Object { "  $($_.name) $($_.pv)" }
