@@ -23,6 +23,8 @@ public class Win {
     [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h, uint flags);
     [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+    [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
     static string Describe(IntPtr h) {
         if (h == IntPtr.Zero) return "(none)";
@@ -69,13 +71,34 @@ public class Win {
         }, IntPtr.Zero);
         return res;
     }
+    // Client area of a window in screen coordinates: "L|T|R|B"
+    public static string ClientRect(IntPtr h) {
+        RECT r; GetClientRect(h, out r);
+        POINT p; p.X = 0; p.Y = 0; ClientToScreen(h, ref p);
+        return String.Format("{0}|{1}|{2}|{3}", p.X, p.Y, p.X + r.R, p.Y + r.B);
+    }
+    // Bounding box of the pixels of one colour on the primary screen: "L|T|R|B|count" (used to find where a slide is drawn)
+    public static string ColorBox(int r, int g, int b, int tol) {
+        var sb = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+        int L = int.MaxValue, T = int.MaxValue, R = -1, B = -1, n = 0;
+        using (var bmp = new System.Drawing.Bitmap(sb.Width, sb.Height)) {
+            using (var gr = System.Drawing.Graphics.FromImage(bmp)) { gr.CopyFromScreen(sb.Location, System.Drawing.Point.Empty, sb.Size); }
+            for (int y = 0; y < sb.Height; y += 2) for (int x = 0; x < sb.Width; x += 2) {
+                var c = bmp.GetPixel(x, y);
+                if (Math.Abs(c.R - r) <= tol && Math.Abs(c.G - g) <= tol && Math.Abs(c.B - b) <= tol) {
+                    n++; if (x < L) L = x; if (x > R) R = x; if (y < T) T = y; if (y > B) B = y;
+                }
+            }
+        }
+        return String.Format("{0}|{1}|{2}|{3}|{4}", L, T, R, B, n);
+    }
     public static void Click(int x, int y) {
         SetCursorPos(x, y); System.Threading.Thread.Sleep(150);
         mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero); System.Threading.Thread.Sleep(60);
         mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero); System.Threading.Thread.Sleep(150);
     }
 }
-"@
+"@ -ReferencedAssemblies System.Drawing, System.Windows.Forms
 [Win]::SetProcessDPIAware() | Out-Null
 
 $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
@@ -108,10 +131,15 @@ function DismissDialogs([string]$label) {
         if ($ds.Count -eq 0) { return }
         foreach ($d in $ds) {
             $f = $d.Split('|')
-            "DIALOG ($label) '$($f[5])' rect=($($f[1]),$($f[2]),$($f[3]),$($f[4])) -> closing"
+            "DIALOG ($label) '$($f[5])' rect=($($f[1]),$($f[2]),$($f[3]),$($f[4])) -> closing (try $try)"
             [Win]::Activate([IntPtr][int64]$f[0])
             Start-Sleep -Milliseconds 400
-            [Win]::Click([int]$f[3] - 130, [int]$f[4] - 15)     # the Close / OK button sits bottom right
+            switch ($try) {
+                1 { [Win]::Click([int]$f[3] - 130, [int]$f[4] - 52) }      # the Close / OK button, bottom right
+                2 { [System.Windows.Forms.SendKeys]::SendWait('{ENTER}') }  # the default button
+                3 { [Win]::Click([int]$f[3] - 130, [int]$f[4] - 15) }
+                4 { [System.Windows.Forms.SendKeys]::SendWait('%{F4}') }
+            }
             Start-Sleep -Seconds 2
         }
     }

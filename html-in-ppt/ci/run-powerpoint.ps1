@@ -235,11 +235,20 @@ function HumanShow($deck, [string]$tag) {
             if ($pos -ne $st.s) { Keys '{LEFT}'; Start-Sleep -Seconds 3; "[$tag] went back with LEFT: slide $($sh.View.CurrentShowPosition)" }
         }
         Shot ("40-$tag-slide{0}" -f $st.s)
-        if ($st.s -eq 1) { Keys 'zz'; Start-Sleep -Seconds 1; Shot "41-$tag-slide1-typed" }
+        if ($st.s -eq 1) {
+            Keys 'zz'; Start-Sleep -Seconds 1; Shot "41-$tag-slide1-typed"
+            # PageDown must turn the page even while the caret is in a text box
+            Mark "human-$tag-pgdn"
+            Keys '{PGDN}'; Start-Sleep -Seconds 3
+            "[$tag] PageDown while typing in the text box: show is on slide $($sh.View.CurrentShowPosition)"
+        }
         if ($st.s -eq 3) {
             Mark "human-$tag-key"
             Keys '{RIGHT}'; Start-Sleep -Seconds 3
             "[$tag] RIGHT after clicking inside slide 3: show is on slide $($sh.View.CurrentShowPosition)"
+            # no click in between: does the keyboard still work right after a forwarded page turn?
+            Keys '{LEFT}'; Start-Sleep -Seconds 3
+            "[$tag] LEFT right after the forwarded page turn: show is on slide $($sh.View.CurrentShowPosition)"
         }
     }
     # the page-turn button drawn by the deck itself (calls liveSlide.next())
@@ -249,10 +258,57 @@ function HumanShow($deck, [string]$tag) {
     Start-Sleep -Seconds 3
     "[$tag] after the in-deck next button: show is on slide $($sh.View.CurrentShowPosition)"
     Shot "42-$tag-after-deck-next"
-    try { $sh.View.Exit() } catch {}
+    # Esc with the keyboard inside the HTML: can the presenter still end the show?
+    Mark "human-$tag-esc"
+    $p = StagePoint 960 620 $full
+    Hover $p[0] $p[1]; Start-Sleep -Milliseconds 500
+    ClickAt $p[0] $p[1] "[$tag] plain spot before Esc"
+    Start-Sleep -Seconds 2
+    foreach ($n in 1, 2) {
+        Keys '{ESC}'; Start-Sleep -Seconds 3
+        $left = -1; try { $left = $ppt.SlideShowWindows.Count } catch {}
+        "[$tag] after Esc #${n}: slide show windows = $left"
+        if ($left -eq 0) { break }
+    }
+    try { if ($ppt.SlideShowWindows.Count -gt 0) { $sh.View.Exit() } } catch {}
     Start-Sleep -Seconds 2
 }
+
+# The same show in a window ("browsed by an individual"): another hosting path for the add-in.
+function WindowShow($deck, [string]$tag) {
+    Mark "window-$tag"
+    $sh = $null
+    try { $deck.SlideShowSettings.ShowType = 2; $sh = $deck.SlideShowSettings.Run() } catch { "[$tag] window show failed: $_"; return }
+    Start-Sleep -Seconds 3
+    try { $sh.Activate() } catch {}
+    try { [Win]::ShowWindow([IntPtr]$sh.HWND, 3) | Out-Null } catch {}     # maximised, so nothing of the editing window shows through
+    try { [Win]::Activate([IntPtr]$sh.HWND) } catch {}
+    Start-Sleep -Seconds 6
+    Shot "45-$tag-window-slide1"
+    "[$tag] window show on slide $($sh.View.CurrentShowPosition); client=$([Win]::ClientRect([IntPtr]$sh.HWND)); foreground=[$([Win]::Foreground())]"
+    # where is the slide drawn? slide 1 has one flat background colour
+    $box = [Win]::ColorBox(0xf4, 0xf1, 0xea, 2).Split('|')
+    "[$tag] slide background box: ($($box[0]),$($box[1]))-($($box[2]),$($box[3])) pixels=$($box[4])"
+    if ([int]$box[4] -gt 5000) {
+        $rect = @{ X = [int]$box[0]; Y = [int]$box[1]; W = ([int]$box[2] - [int]$box[0]); H = ([int]$box[3] - [int]$box[1]) }
+        $p = StagePoint 570 683 $rect
+        foreach ($n in 1, 2) {
+            Hover $p[0] $p[1]; Start-Sleep -Milliseconds 700
+            ClickAt $p[0] $p[1] "[$tag] window show, text box #$n"; Start-Sleep -Seconds 2
+            "[$tag] window show after click #${n}: slide $($sh.View.CurrentShowPosition)"
+        }
+        Keys 'ww'; Start-Sleep -Seconds 1
+        Shot "46-$tag-window-typed"
+        Keys '{PGDN}'; Start-Sleep -Seconds 4
+        "[$tag] window show after PageDown: slide $($sh.View.CurrentShowPosition)"
+        Shot "47-$tag-window-slide2"
+    } else { "[$tag] window show: the slide was not found on screen" }
+    try { $sh.View.Exit() } catch {}
+    Start-Sleep -Seconds 2
+    try { $deck.SlideShowSettings.ShowType = 1 } catch {}
+}
 HumanShow $pres 'noclick'
+WindowShow $pres 'noclick'
 
 if ($Variants -and (Test-Path $Variants)) {
     # the same deck built with --click-advance: what happens when a click may turn the page
@@ -295,6 +351,17 @@ if ($Variants -and (Test-Path $Variants)) {
             if ($su) { try { $su.Activate() } catch {}; Start-Sleep -Seconds 5; Shot '60-unregistered-show-slide1'; Keys '{RIGHT}'; Start-Sleep -Seconds 4; Shot '61-unregistered-show-slide2'; try { $su.View.Exit() } catch {} }
             try { $pu.Saved = -1; $pu.Close() } catch {}
         }
+    }
+}
+# Last, because its outside link may bring a browser window to the front: the deck that uses
+# localStorage, alert(), confirm(), history and links on purpose (results arrive through the probe).
+if ($Variants -and (Test-Path (Join-Path $Variants 'B1.pptx'))) {
+    Mark 'open-B1'
+    $pb = Open-Deck (Join-Path $Variants 'B1.pptx')
+    if ($pb) {
+        Start-Sleep -Seconds 14; Shot 'A-B1'
+        Start-Sleep -Seconds 4; Shot 'A-B1-late'; Windows 'after the self-test deck'
+        try { $pb.Saved = -1; $pb.Close() } catch { "close B1 failed: $_" }
     }
 }
 WebViews 'after slide show'

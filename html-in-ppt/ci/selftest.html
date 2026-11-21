@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>selftest</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #f4f1ea; font: 28px/1.5 'Malgun Gothic', sans-serif; color: #132c3d; }
+  .slide { padding: 60px 80px; }
+  pre { font: 24px/1.5 Consolas, monospace; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<section class="slide" id="s1" data-notes="self test of what the add-in page gives a deck">
+  <h1>Self test</h1>
+  <p><a id="hash" href="#out">hash link</a> · <a id="ext" href="https://example.com/">outside link</a></p>
+  <pre id="out">running…</pre>
+</section>
+<script>
+// Uses, on purpose, the things a sandboxed frame normally refuses. The add-in page must make them harmless.
+(function () {
+  var r = {};
+  function t(name, fn) { try { r[name] = fn(); } catch (e) { r[name] = 'ERR ' + (e && e.name); } }
+  t('slide', function () { return window.__LIVE_SLIDE__; });
+  t('api', function () { return typeof window.liveSlide === 'object' && typeof liveSlide.next === 'function' && liveSlide.index; });
+  t('ls', function () { localStorage.setItem('k', 'v1'); return localStorage.getItem('k'); });
+  t('ss', function () { sessionStorage.setItem('k', 'v2'); return sessionStorage.getItem('k'); });
+  t('ck', function () { document.cookie = 'a=1'; return typeof document.cookie; });
+  t('al', function () { var a = Date.now(); alert('alert() from the deck'); return Date.now() - a < 500 ? 'no-block' : 'blocked'; });
+  t('cf', function () { return confirm('ok?'); });
+  t('pr', function () { return prompt('name?', 'dflt'); });
+  t('hs', function () { history.replaceState({}, '', '#x'); return 'ok'; });
+  t('hash', function () { document.getElementById('hash').click(); return 'alive'; });
+  t('ext', function () { document.getElementById('ext').click(); return 'alive'; });
+  var s = JSON.stringify(r);
+  document.getElementById('out').textContent = s.replace(/,/g, ',\n');
+  document.title = 'SELFTEST ' + s;
+})();
+</script>
+</body>
+</html>

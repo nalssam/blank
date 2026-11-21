@@ -30,6 +30,8 @@ jobs:
             language: ko-kr                 # Korean UI, to see the messages teachers will see
           - product: ProPlus2024Volume
             channel: PerpetualVL2024
+          - product: ProPlus2021Volume      # LTSC 2021, common on school PCs
+            channel: PerpetualVL2021
           - product: ProPlus2019Volume      # volume 2019 always uses the IE11 webview: only the notice must show
             channel: PerpetualVL2019
             legacy: true
@@ -72,6 +74,7 @@ jobs:
           Run 'build' 'python html-in-ppt\scripts\build_live_pptx.py html-in-ppt\demo\deck.html -o C:\live\deck.pptx'
           Run 'qa' 'python html-in-ppt\scripts\qa_live_pptx.py C:\live\deck.pptx'
           Run 'variants' 'python html-in-ppt\ci\make_variants.py C:\live\deck.pptx html-in-ppt\ci\ms-content-template.pptx C:\live\variants'
+          Run 'selftest deck' 'python html-in-ppt\scripts\build_live_pptx.py html-in-ppt\ci\selftest.html -o C:\live\variants\B1.pptx'
           Run 'click-advance deck' 'python html-in-ppt\scripts\build_live_pptx.py html-in-ppt\demo\deck.html -o C:\live\variants\C1.pptx --click-advance'
           Run 'register' 'python html-in-ppt\scripts\register_addin.py --manifest C:\live\manifest.xml'
           Run 'status' 'python html-in-ppt\scripts\register_addin.py --manifest C:\live\manifest.xml --status'
@@ -159,6 +162,10 @@ jobs:
           $loads = @($log | Select-String '"ev":"page-load"').Count
           $legacy = @($log | Select-String '"ev":"page-load".*Trident').Count
           "VERDICT page-load=$loads office-ready=$ready deck-ready=$deck deck-click=$clicks deck-input=$inputs legacy-engine-loads=$legacy"
+          $self = @($log | Select-String '"ev":"deck-ready".*SELFTEST') | Select-Object -First 1
+          if ($self) { "SELFTEST " + ([regex]::Match($self.Line, 'SELFTEST (.*?\})\"').Groups[1].Value -replace '\\"', '"') } else { 'SELFTEST (no result)' }
+          $out = if (Test-Path C:\live\run.out) { Get-Content C:\live\run.out } else { @() }
+          $out | Select-String '^\[(noclick|clickadv)\] (PageDown|RIGHT|LEFT|after Esc|window show|slide background|after the in-deck)' | ForEach-Object { $_.Line }
           if ('${{ matrix.legacy }}' -eq 'true') {
             if ($loads -lt 1) { Write-Host '::error::The add-in page was not loaded by the legacy webview'; exit 1 }
           } elseif ($ready -lt 1 -or $deck -lt 1) { Write-Host '::error::The add-in did not run inside PowerPoint'; exit 1 }
