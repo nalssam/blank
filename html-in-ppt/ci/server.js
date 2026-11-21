@@ -8,7 +8,8 @@ const path = require('path');
 
 const [rootArg, pfx, logFile] = process.argv.slice(2);
 const root = path.resolve(rootArg);
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.png': 'image/png', '.xml': 'text/xml', '.css': 'text/css' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.png': 'image/png', '.xml': 'text/xml', '.css': 'text/css',
+  '.ps1': 'text/plain; charset=utf-8', '.sh': 'text/plain; charset=utf-8' };
 
 function log(o) {
   const line = JSON.stringify(Object.assign({ t: new Date().toISOString() }, o));

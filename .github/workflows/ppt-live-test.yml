@@ -102,6 +102,15 @@ jobs:
           Start-Sleep -Seconds 4
           $r = Invoke-WebRequest https://localhost:3000/index.html -UseBasicParsing
           "server check: $($r.StatusCode) $($r.Content.Length) bytes"
+          # Register again the way a colleague without the skill does: the published one-liner (pointed at this server).
+          Copy-Item C:\live\manifest.xml html-in-ppt\addin\manifest.xml -Force
+          $env:LIVEHTML_SITE = 'https://localhost:3000'
+          powershell -NoProfile -Command "irm https://localhost:3000/unregister.ps1 | iex" *> C:\live\logs\oneliner.txt
+          "after unregister: $((Get-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Office\16.0\Wef\Developer').'6f2b8c1e-4d7a-4e55-9a3b-2c8f5d1e7a90')" | Add-Content C:\live\logs\oneliner.txt
+          powershell -NoProfile -Command "irm https://localhost:3000/register.ps1 | iex" *>> C:\live\logs\oneliner.txt
+          $reg = (Get-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Office\16.0\Wef\Developer').'6f2b8c1e-4d7a-4e55-9a3b-2c8f5d1e7a90'
+          "one-liner registration -> $reg  exists=$(Test-Path $reg)"
+          if (-not $reg -or -not (Test-Path $reg)) { throw 'the one-liner did not register the add-in' }
           $manifest = Join-Path $env:LOCALAPPDATA 'LiveHTML\manifest.xml'
           $child = Start-Process powershell -PassThru -WindowStyle Hidden -RedirectStandardOutput C:\live\run.out -RedirectStandardError C:\live\run.err -ArgumentList @(
             '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'html-in-ppt\ci\run-powerpoint.ps1',
