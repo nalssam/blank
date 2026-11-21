@@ -47,8 +47,9 @@ const PROBE = `<script>(function(){
   });}
 })();</script>`;
 
-https.createServer({ pfx: fs.readFileSync(pfx), passphrase: 'livehtml' }, (req, res) => {
+const server = https.createServer({ pfx: fs.readFileSync(pfx), passphrase: 'livehtml' }, (req, res) => {
   const u = new URL(req.url, 'https://localhost:3000');
+  if (u.pathname === '/mark') { log({ mark: u.searchParams.get('l') }); res.writeHead(204); res.end(); return; }
   if (u.pathname === '/probe') {
     let body = '';
     req.on('data', (c) => { body += c; });
@@ -71,4 +72,9 @@ https.createServer({ pfx: fs.readFileSync(pfx), passphrase: 'livehtml' }, (req, 
   }
   res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
   res.end(data);
-}).listen(3000, () => log({ listening: 3000, root: path.resolve(root) }));
+});
+// Connection-level events: a client that rejects our certificate never produces an HTTP request.
+server.on('connection', (sock) => log({ tcp: 'connection', from: sock.remoteAddress }));
+server.on('secureConnection', (sock) => log({ tls: 'ok', proto: sock.getProtocol(), sni: sock.servername || null }));
+server.on('tlsClientError', (err, sock) => log({ tls: 'clientError', msg: String(err && err.message), from: sock && sock.remoteAddress }));
+server.listen(3000, () => log({ listening: 3000, root }));
