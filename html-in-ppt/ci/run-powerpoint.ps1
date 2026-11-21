@@ -130,9 +130,20 @@ try {
     "edit view slide rect on screen: ($x0,$y0)-($x1,$y1)"
     $rect = @{ X = $x0; Y = $y0; W = ($x1 - $x0); H = ($y1 - $y0) }
     $p = StagePoint 1385 560 $rect
-    [Win]::Click($p[0], $p[1]); Start-Sleep -Seconds 2
-    [Win]::Click($p[0], $p[1]); Start-Sleep -Seconds 3
+    ClickAt $p[0] $p[1] 'edit view, option B (1st)'; Start-Sleep -Seconds 2
+    ClickAt $p[0] $p[1] 'edit view, option B (2nd)'; Start-Sleep -Seconds 3
     Shot '11-edit-slide3-clicked'
+    # page-turn key pressed while the keyboard is inside the HTML (editing view)
+    Mark 'edit-key-next'
+    [System.Windows.Forms.SendKeys]::SendWait('{RIGHT}'); Start-Sleep -Seconds 3
+    try { "after RIGHT in the editing view: selected slide is $($ppt.ActiveWindow.View.Slide.SlideIndex)" } catch { "edit position failed: $_" }
+    # typing into the text box of slide 1 (editing view)
+    $ppt.ActiveWindow.View.GotoSlide(1); Start-Sleep -Seconds $LoadWait
+    $p = StagePoint 600 660 $rect
+    ClickAt $p[0] $p[1] 'edit view, text box (1st)'; Start-Sleep -Seconds 1
+    ClickAt $p[0] $p[1] 'edit view, text box (2nd)'; Start-Sleep -Seconds 1
+    [System.Windows.Forms.SendKeys]::SendWait('abc 123'); Start-Sleep -Seconds 2
+    Shot '12-edit-slide1-typed'
 } catch { "edit click failed: $_" }
 
 # Slide show: every slide, with real clicks and typing.
@@ -141,28 +152,47 @@ $show = $null
 Mark 'slideshow'
 try { $show = $pres.SlideShowSettings.Run() } catch { "SlideShow.Run failed: $_" }
 if ($show) {
-    Start-Sleep -Seconds ($LoadWait + 4)
-    Shot '20-show-slide1'; Windows 'slide show'
+    # A show started through COM is not the foreground window; a person pressing F5 gets that for free.
+    Start-Sleep -Seconds 3
+    try { $show.Activate() } catch { "show.Activate failed: $_" }
+    try { [Win]::Activate([IntPtr]$show.HWND) } catch { "activate hwnd failed: $_" }
+    "slide show window activated; foreground=[$([Win]::Foreground())]"
+    foreach ($t in 2, 5, 9) { Start-Sleep -Seconds 3; Shot ("20-show-slide1-t{0}" -f $t) }
+    Windows 'slide show'
     $p = StagePoint 600 660 $full                      # the text box on slide 1
-    [Win]::Click($p[0], $p[1]); Start-Sleep -Seconds 1
+    ClickAt $p[0] $p[1] 'show, text box (1st)'; Start-Sleep -Seconds 2
+    Shot '21a-show-slide1-click1'
+    ClickAt $p[0] $p[1] 'show, text box (2nd)'; Start-Sleep -Seconds 1
     [System.Windows.Forms.SendKeys]::SendWait('hello ppt'); Start-Sleep -Seconds 2
-    Shot '21-show-slide1-typed'
+    "after typing: slide show is on slide $($show.View.CurrentShowPosition); foreground=[$([Win]::Foreground())]"
+    Shot '21b-show-slide1-typed'
     foreach ($i in 2..$Slides) {
         try { $show.View.GotoSlide($i) } catch { "show GotoSlide($i) failed: $_" }
-        Start-Sleep -Seconds $LoadWait
+        Start-Sleep -Seconds 2; Shot ("22-show-slide{0}-t2" -f $i)
+        Start-Sleep -Seconds ($LoadWait - 2)
         Shot ("22-show-slide{0}" -f $i)
+        if ($i -eq 2) {
+            # drag the first slider (monthly growth) to the right
+            $p = StagePoint 500 470 $full
+            ClickAt $p[0] $p[1] 'show, slider'; Start-Sleep -Seconds 2
+            Shot '22b-show-slide2-slider'
+            "after slider click: slide show is on slide $($show.View.CurrentShowPosition)"
+        }
         if ($i -eq 3) {
-            $p = StagePoint 500 560 $full; [Win]::Click($p[0], $p[1]); Start-Sleep -Seconds 2    # option A (wrong)
-            $p = StagePoint 1385 560 $full; [Win]::Click($p[0], $p[1]); Start-Sleep -Seconds 2   # option B (right)
+            $p = StagePoint 500 560 $full; ClickAt $p[0] $p[1] 'show, option A'; Start-Sleep -Seconds 2
+            "after option A: slide show is on slide $($show.View.CurrentShowPosition)"
+            $p = StagePoint 1385 560 $full; ClickAt $p[0] $p[1] 'show, option B'; Start-Sleep -Seconds 2
+            "after option B: slide show is on slide $($show.View.CurrentShowPosition)"
             Shot '23-show-slide3-answered'
-            # the page-turn key, pressed while focus is inside the HTML, must reach PowerPoint
+            # the page-turn key, pressed while the keyboard is inside the HTML, must reach PowerPoint
             Mark 'key-next'
             [System.Windows.Forms.SendKeys]::SendWait('{RIGHT}'); Start-Sleep -Seconds 4
             try { "after RIGHT inside the HTML: slide show is on slide $($show.View.CurrentShowPosition)" } catch { "position failed: $_" }
             Shot '23b-show-after-right'
         }
         if ($i -eq 4) {
-            $p = StagePoint 1385 800 $full; [Win]::Click($p[0], $p[1]); Start-Sleep -Seconds 3   # the draw button
+            $p = StagePoint 1385 800 $full; ClickAt $p[0] $p[1] 'show, draw button'; Start-Sleep -Seconds 3
+            "after draw: slide show is on slide $($show.View.CurrentShowPosition)"
             Shot '24-show-slide4-rolled'
         }
     }

@@ -19,6 +19,26 @@ public class Win {
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
+    [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h, uint flags);
+    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
+    static string Describe(IntPtr h) {
+        if (h == IntPtr.Zero) return "(none)";
+        var t = new StringBuilder(256); GetWindowText(h, t, 256);
+        var c = new StringBuilder(256); GetClassName(h, c, 256);
+        uint pid; GetWindowThreadProcessId(h, out pid);
+        string pn = "?"; try { pn = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName; } catch {}
+        return String.Format("{0}/{1} \"{2}\"", pn, c, t);
+    }
+    public static string At(int x, int y) {
+        POINT p; p.X = x; p.Y = y;
+        IntPtr h = WindowFromPoint(p);
+        return Describe(h) + " in " + Describe(GetAncestor(h, 2));
+    }
+    public static string Foreground() { return Describe(GetForegroundWindow()); }
+    public static void Activate(IntPtr h) { ShowWindow(h, 5); BringWindowToTop(h); SetForegroundWindow(h); }
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
     public static List<string> List() {
         var res = new List<string>();
@@ -66,6 +86,11 @@ function Shot([string]$name, [string]$dir = $OutDir) {
 function Windows([string]$label) {
     "---- windows ($label)"
     [Win]::List() | ForEach-Object { "  $_" }
+}
+# A real click that also records which window was under the pointer and which had the keyboard.
+function ClickAt([int]$x, [int]$y, [string]$what) {
+    "CLICK $what at ($x,$y) over [$([Win]::At($x, $y))] foreground=[$([Win]::Foreground())]"
+    [Win]::Click($x, $y)
 }
 # Stage coordinates (1920x1080) -> screen coordinates for a rectangle showing the slide.
 function StagePoint([double]$sx, [double]$sy, $rect) {

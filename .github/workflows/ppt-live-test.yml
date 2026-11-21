@@ -115,7 +115,7 @@ jobs:
           $child = Start-Process powershell -PassThru -WindowStyle Hidden -RedirectStandardOutput C:\live\run.out -RedirectStandardError C:\live\run.err -ArgumentList @(
             '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'html-in-ppt\ci\run-powerpoint.ps1',
             '-Pptx', 'C:\live\deck.pptx', '-Manifest', $manifest, '-OutDir', 'C:\live\out', '-Variants', 'C:\live\variants')
-          $deadline = (Get-Date).AddMinutes(17)
+          $deadline = (Get-Date).AddMinutes(20)
           $n = 0
           while (-not $child.HasExited -and (Get-Date) -lt $deadline) {
             Start-Sleep -Seconds 30
