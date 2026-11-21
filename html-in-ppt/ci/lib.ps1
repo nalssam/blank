@@ -38,6 +38,20 @@ public class Win {
         return Describe(h) + " in " + Describe(GetAncestor(h, 2));
     }
     public static string Foreground() { return Describe(GetForegroundWindow()); }
+    // Modal Office dialogs (first-run notices and the like): "hwnd|L|T|R|B|title"
+    public static List<string> Dialogs() {
+        var res = new List<string>();
+        EnumWindows((h, l) => {
+            if (!IsWindowVisible(h)) return true;
+            var c = new StringBuilder(256); GetClassName(h, c, 256);
+            if (c.ToString() != "NUIDialog") return true;
+            var t = new StringBuilder(256); GetWindowText(h, t, 256);
+            RECT r; GetWindowRect(h, out r);
+            res.Add(String.Format("{0}|{1}|{2}|{3}|{4}|{5}", h.ToInt64(), r.L, r.T, r.R, r.B, t));
+            return true;
+        }, IntPtr.Zero);
+        return res;
+    }
     public static void Activate(IntPtr h) { ShowWindow(h, 5); BringWindowToTop(h); SetForegroundWindow(h); }
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
     public static List<string> List() {
@@ -86,6 +100,30 @@ function Shot([string]$name, [string]$dir = $OutDir) {
 function Windows([string]$label) {
     "---- windows ($label)"
     [Win]::List() | ForEach-Object { "  $_" }
+}
+# Closes Office's own modal notices (for example "Your privacy option") that would block everything else.
+function DismissDialogs([string]$label) {
+    foreach ($try in 1..4) {
+        $ds = [Win]::Dialogs()
+        if ($ds.Count -eq 0) { return }
+        foreach ($d in $ds) {
+            $f = $d.Split('|')
+            "DIALOG ($label) '$($f[5])' rect=($($f[1]),$($f[2]),$($f[3]),$($f[4])) -> closing"
+            [Win]::Activate([IntPtr][int64]$f[0])
+            Start-Sleep -Milliseconds 400
+            [Win]::Click([int]$f[3] - 130, [int]$f[4] - 15)     # the Close / OK button sits bottom right
+            Start-Sleep -Seconds 2
+        }
+    }
+    if ([Win]::Dialogs().Count -gt 0) { "DIALOG ($label) still open" }
+}
+# Moves the pointer the way a hand does (a jump straight to the target is not what a presenter does).
+function Hover([int]$x, [int]$y) {
+    $c = [System.Windows.Forms.Cursor]::Position
+    foreach ($k in 1..6) {
+        [Win]::SetCursorPos([int]($c.X + ($x - $c.X) * $k / 6), [int]($c.Y + ($y - $c.Y) * $k / 6)) | Out-Null
+        Start-Sleep -Milliseconds 70
+    }
 }
 # A real click that also records which window was under the pointer and which had the keyboard.
 function ClickAt([int]$x, [int]$y, [string]$what) {

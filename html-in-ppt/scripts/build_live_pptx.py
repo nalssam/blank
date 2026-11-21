@@ -438,7 +438,8 @@ def slide_titles(html: str, n: int) -> list:
     return titles
 
 
-def build(html: str, slides: int, w: int, h: int, pngs: list, notes: list, titles: list, out: Path) -> dict:
+def build(html: str, slides: int, w: int, h: int, pngs: list, notes: list, titles: list, out: Path,
+          click_advance: bool = False) -> dict:
     prs = Presentation()
     prs.slide_width = Emu(SLIDE_W)
     prs.slide_height = Emu(round(SLIDE_W * h / w))
@@ -471,6 +472,17 @@ def build(html: str, slides: int, w: int, h: int, pngs: list, notes: list, title
         if notes[i - 1]:
             slide.notes_slide.notes_text_frame.text = notes[i - 1]
 
+        # 4) 슬라이드 쇼에서 마우스 클릭으로는 넘어가지 않게 한다(클릭은 HTML 을 누르는 데 쓴다).
+        #    키보드(→ PageDown)·리모컨·덱 안의 넘김 단추로는 그대로 넘어간다.
+        if not click_advance:
+            sld = slide._element
+            for old in sld.findall(f"{{{NS_P}}}transition"):
+                sld.remove(old)
+            tr = etree.SubElement(sld, f"{{{NS_P}}}transition")
+            tr.set("advClick", "0")
+            sld.remove(tr)
+            sld.find(f"{{{NS_P}}}clrMapOvr").addnext(tr)
+
     prs.core_properties.title = titles[0] if titles else out.stem
     out.parent.mkdir(parents=True, exist_ok=True)
     prs.save(str(out))
@@ -500,6 +512,8 @@ def main() -> int:
     ap.add_argument("--wait", type=int, default=4000, help="미리보기를 찍기 전 기다리는 시간(ms, 기본 4000)")
     ap.add_argument("--no-inline", action="store_true", help="로컬 그림·CSS·JS 를 HTML 안으로 넣지 않는다")
     ap.add_argument("--save-html", type=Path, help="한 파일로 합친 HTML 을 따로 저장한다")
+    ap.add_argument("--click-advance", action="store_true",
+                    help="슬라이드 쇼에서 마우스 클릭으로도 다음 장으로 넘어가게 둔다(기본: 클릭은 HTML 조작에만 쓴다)")
     ap.add_argument("--shots", type=Path, help="장마다 미리보기 PNG 와 모아보기(sheet.jpg)를 이 폴더에 저장한다")
     args = ap.parse_args()
 
@@ -550,7 +564,7 @@ def main() -> int:
             else:
                 drawn += 1
             pngs.append(normalize_png(s, w, h))
-        info = build(html, n, w, h, pngs, notes, titles, out)
+        info = build(html, n, w, h, pngs, notes, titles, out, click_advance=args.click_advance)
         sheet = save_shots(pngs, args.shots) if args.shots else None
 
     print(f"완료: {out}")

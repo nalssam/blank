@@ -177,6 +177,18 @@ class Build(unittest.TestCase):
         self.assertEqual(types_xml.count(B.CT_WEBEXT), 3)
         self.assertEqual(len(ids), 3)                                    # 인스턴스 ID 는 장마다 달라야 한다
 
+    def test_click_does_not_advance_by_default(self):
+        with zipfile.ZipFile(self.out) as z:
+            slide = z.read("ppt/slides/slide2.xml").decode("utf-8")
+        self.assertIn('<p:transition advClick="0"/>', slide)
+        self.assertLess(slide.index("</p:clrMapOvr>") if "</p:clrMapOvr>" in slide else slide.index("<p:clrMapOvr"),
+                        slide.index("<p:transition"))
+        out = self.dir / "adv.pptx"
+        code, log = run_main(B, ["build", str(self.deck), "-o", str(out), "--browser", "none", "--click-advance"])
+        self.assertEqual(code, 0, log)
+        with zipfile.ZipFile(out) as z:
+            self.assertNotIn("<p:transition", z.read("ppt/slides/slide2.xml").decode("utf-8"))
+
     def test_notes_and_python_pptx_reload(self):
         from pptx import Presentation
         prs = Presentation(str(self.out))

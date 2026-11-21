@@ -84,7 +84,7 @@
 
   #nav{position:fixed;right:24px;bottom:20px;display:flex;gap:8px;z-index:9}
   #nav button{width:44px;height:44px;border-radius:50%;background:#0003;color:#fff;font-size:18px}
-  body.embedded #nav{display:none}
+  body.embedded #nav button{width:64px;height:64px;font-size:26px;background:#0002}
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
@@ -174,8 +174,10 @@
   function show(n){cur=Math.max(1,Math.min(slides.length,n));slides.forEach(function(s,i){s.classList.toggle('on',i===cur-1)});}
   function fit(){var k=Math.min(innerWidth/1920,innerHeight/1080);$('#stage').style.transform='scale('+k+') translate(-50%,-50%)';}
   addEventListener('resize',fit);fit();show(cur);
+  /* PowerPoint 안에서는 넘김 단추가 PowerPoint 의 슬라이드를 넘긴다(window.liveSlide 는 추가 기능이 넣어 준다) */
+  $('#pv').onclick=function(){if(window.liveSlide){liveSlide.prev()}else{show(cur-1)}};
+  $('#nx').onclick=function(){if(window.liveSlide){liveSlide.next()}else{show(cur+1)}};
   if(!embedded){
-    $('#pv').onclick=function(){show(cur-1)};$('#nx').onclick=function(){show(cur+1)};
     addEventListener('keydown',function(e){if(e.target.tagName==='INPUT')return;
       if(e.key==='ArrowRight'||e.key==='PageDown')show(cur+1);if(e.key==='ArrowLeft'||e.key==='PageUp')show(cur-1);});
   }

@@ -20,7 +20,7 @@ concurrency:
 jobs:
   powerpoint:
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
@@ -72,6 +72,7 @@ jobs:
           Run 'build' 'python html-in-ppt\scripts\build_live_pptx.py html-in-ppt\demo\deck.html -o C:\live\deck.pptx'
           Run 'qa' 'python html-in-ppt\scripts\qa_live_pptx.py C:\live\deck.pptx'
           Run 'variants' 'python html-in-ppt\ci\make_variants.py C:\live\deck.pptx html-in-ppt\ci\ms-content-template.pptx C:\live\variants'
+          Run 'click-advance deck' 'python html-in-ppt\scripts\build_live_pptx.py html-in-ppt\demo\deck.html -o C:\live\variants\C1.pptx --click-advance'
           Run 'register' 'python html-in-ppt\scripts\register_addin.py --manifest C:\live\manifest.xml'
           Run 'status' 'python html-in-ppt\scripts\register_addin.py --manifest C:\live\manifest.xml --status'
           # control manifests for the diagnosis matrix (registered directly)
@@ -115,7 +116,7 @@ jobs:
           $child = Start-Process powershell -PassThru -WindowStyle Hidden -RedirectStandardOutput C:\live\run.out -RedirectStandardError C:\live\run.err -ArgumentList @(
             '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'html-in-ppt\ci\run-powerpoint.ps1',
             '-Pptx', 'C:\live\deck.pptx', '-Manifest', $manifest, '-OutDir', 'C:\live\out', '-Variants', 'C:\live\variants')
-          $deadline = (Get-Date).AddMinutes(20)
+          $deadline = (Get-Date).AddMinutes(24)
           $n = 0
           while (-not $child.HasExited -and (Get-Date) -lt $deadline) {
             Start-Sleep -Seconds 30

@@ -62,6 +62,7 @@ if (-not $ppt) { Shot '00-no-com'; Windows 'no com'; exit 1 }
 try { $ppt.Visible = -1 } catch { "Visible failed: $_" }
 "PowerPoint version: $($ppt.Version) build: $($ppt.Build)"
 Start-Sleep -Seconds 10
+DismissDialogs 'after start'
 try { $ppt.WindowState = 3 } catch {}
 Shot '00-started'; Windows 'started'
 
@@ -80,7 +81,7 @@ function Open-Deck([string]$path) {
 
 # Phase A: which link of the chain works?
 if ($Variants -and (Test-Path $Variants)) {
-    foreach ($d in 'D4', 'D5', 'D2', 'D3', 'U1', 'N1', 'Z1', 'Z2', 'Z3', 'Z4', 'Z5') {
+    foreach ($d in 'D3', 'U1', 'N1', 'Z4', 'Z5') {
         $f = Join-Path $Variants "$d.pptx"
         if (-not (Test-Path $f)) { continue }
         Mark "open-$d"
@@ -88,7 +89,8 @@ if ($Variants -and (Test-Path $Variants)) {
         if (-not $p) { "A/$d could not be opened"; continue }
         Start-Sleep -Seconds 16
         Shot "A-$d"
-        if ($d -eq 'D4') { WebViews 'first add-in document open' }
+        if ($d -eq 'D3') { WebViews 'first add-in document open' }
+        DismissDialogs "after $d"
         Mark "close-$d"
         try { $p.Saved = -1; $p.Close() } catch { "close $d failed: $_" }
         Start-Sleep -Seconds 2
@@ -139,7 +141,7 @@ try {
     try { "after RIGHT in the editing view: selected slide is $($ppt.ActiveWindow.View.Slide.SlideIndex)" } catch { "edit position failed: $_" }
     # typing into the text box of slide 1 (editing view)
     $ppt.ActiveWindow.View.GotoSlide(1); Start-Sleep -Seconds $LoadWait
-    $p = StagePoint 600 660 $rect
+    $p = StagePoint 570 683 $rect
     ClickAt $p[0] $p[1] 'edit view, text box (1st)'; Start-Sleep -Seconds 1
     ClickAt $p[0] $p[1] 'edit view, text box (2nd)'; Start-Sleep -Seconds 1
     [System.Windows.Forms.SendKeys]::SendWait('abc 123'); Start-Sleep -Seconds 2
@@ -159,7 +161,7 @@ if ($show) {
     "slide show window activated; foreground=[$([Win]::Foreground())]"
     foreach ($t in 2, 5, 9) { Start-Sleep -Seconds 3; Shot ("20-show-slide1-t{0}" -f $t) }
     Windows 'slide show'
-    $p = StagePoint 600 660 $full                      # the text box on slide 1
+    $p = StagePoint 570 683 $full                      # the text box on slide 1
     ClickAt $p[0] $p[1] 'show, text box (1st)'; Start-Sleep -Seconds 2
     Shot '21a-show-slide1-click1'
     ClickAt $p[0] $p[1] 'show, text box (2nd)'; Start-Sleep -Seconds 1
@@ -173,7 +175,7 @@ if ($show) {
         Shot ("22-show-slide{0}" -f $i)
         if ($i -eq 2) {
             # drag the first slider (monthly growth) to the right
-            $p = StagePoint 500 470 $full
+            $p = StagePoint 500 442 $full
             ClickAt $p[0] $p[1] 'show, slider'; Start-Sleep -Seconds 2
             Shot '22b-show-slide2-slider'
             "after slider click: slide show is on slide $($show.View.CurrentShowPosition)"
@@ -191,7 +193,7 @@ if ($show) {
             Shot '23b-show-after-right'
         }
         if ($i -eq 4) {
-            $p = StagePoint 1385 800 $full; ClickAt $p[0] $p[1] 'show, draw button'; Start-Sleep -Seconds 3
+            $p = StagePoint 1394 728 $full; ClickAt $p[0] $p[1] 'show, draw button'; Start-Sleep -Seconds 3
             "after draw: slide show is on slide $($show.View.CurrentShowPosition)"
             Shot '24-show-slide4-rolled'
         }
@@ -200,6 +202,101 @@ if ($show) {
 }
 Start-Sleep -Seconds 2
 Shot '30-after-show'
+
+# ---- A presenter's way: keyboard to turn pages, the pointer moved by hand, no COM navigation ----
+function Keys([string]$k) { [System.Windows.Forms.SendKeys]::SendWait($k) }
+function HumanShow($deck, [string]$tag) {
+    Mark "human-$tag"
+    $sh = $null
+    try { $sh = $deck.SlideShowSettings.Run() } catch { "[$tag] SlideShow.Run failed: $_"; return }
+    Start-Sleep -Seconds 3
+    try { $sh.Activate() } catch {}
+    Start-Sleep -Seconds 3
+    "[$tag] show started on slide $($sh.View.CurrentShowPosition); foreground=[$([Win]::Foreground())]"
+    $steps = @(
+        @{ s = 1; x = 570; y = 683; what = 'text box' },
+        @{ s = 2; x = 500; y = 442; what = 'slider' },
+        @{ s = 3; x = 1387; y = 490; what = 'option B' },
+        @{ s = 4; x = 1394; y = 728; what = 'draw button' }
+    )
+    foreach ($st in $steps) {
+        $guard = 0
+        while ($sh.View.CurrentShowPosition -lt $st.s -and $guard -lt 8) { Keys '{RIGHT}'; Start-Sleep -Seconds 2; $guard++ }
+        while ($sh.View.CurrentShowPosition -gt $st.s -and $guard -lt 16) { Keys '{LEFT}'; Start-Sleep -Seconds 2; $guard++ }
+        "[$tag] on slide $($sh.View.CurrentShowPosition) (wanted $($st.s)) after $guard key presses"
+        Start-Sleep -Seconds 3
+        $p = StagePoint $st.x $st.y $full
+        foreach ($n in 1, 2) {
+            Hover $p[0] $p[1]; Start-Sleep -Milliseconds 700
+            ClickAt $p[0] $p[1] "[$tag] slide $($st.s) $($st.what) #$n"
+            Start-Sleep -Seconds 2
+            $pos = $sh.View.CurrentShowPosition
+            "[$tag] slide $($st.s) $($st.what) click #${n}: show is on slide $pos"
+            if ($pos -ne $st.s) { Keys '{LEFT}'; Start-Sleep -Seconds 3; "[$tag] went back with LEFT: slide $($sh.View.CurrentShowPosition)" }
+        }
+        Shot ("40-$tag-slide{0}" -f $st.s)
+        if ($st.s -eq 1) { Keys 'zz'; Start-Sleep -Seconds 1; Shot "41-$tag-slide1-typed" }
+        if ($st.s -eq 3) {
+            Mark "human-$tag-key"
+            Keys '{RIGHT}'; Start-Sleep -Seconds 3
+            "[$tag] RIGHT after clicking inside slide 3: show is on slide $($sh.View.CurrentShowPosition)"
+        }
+    }
+    # the page-turn button drawn by the deck itself (calls liveSlide.next())
+    $p = StagePoint 1864 1028 $full
+    Hover $p[0] $p[1]; Start-Sleep -Milliseconds 700
+    ClickAt $p[0] $p[1] "[$tag] in-deck next button"
+    Start-Sleep -Seconds 3
+    "[$tag] after the in-deck next button: show is on slide $($sh.View.CurrentShowPosition)"
+    Shot "42-$tag-after-deck-next"
+    try { $sh.View.Exit() } catch {}
+    Start-Sleep -Seconds 2
+}
+HumanShow $pres 'noclick'
+
+if ($Variants -and (Test-Path $Variants)) {
+    # the same deck built with --click-advance: what happens when a click may turn the page
+    $c1 = Join-Path $Variants 'C1.pptx'
+    if (Test-Path $c1) {
+        $pc = Open-Deck $c1
+        if ($pc) {
+            Start-Sleep -Seconds 12
+            HumanShow $pc 'clickadv'
+            try { $pc.Saved = -1; $pc.Close() } catch {}
+        }
+    }
+    # cold start: open and present at once, as a teacher who double-clicks the file and presses F5
+    $cold = Join-Path $Variants 'D1.pptx'
+    if (Test-Path $cold) {
+        Mark 'cold'
+        $pd = Open-Deck $cold
+        if ($pd) {
+            $sc = $null
+            try { $sc = $pd.SlideShowSettings.Run() } catch { "cold Run failed: $_" }
+            if ($sc) {
+                try { $sc.Activate() } catch {}
+                foreach ($t in 1, 2, 3, 5, 8) { Start-Sleep -Seconds $(if ($t -le 3) { 1 } elseif ($t -eq 5) { 2 } else { 3 }); Shot ("50-cold-slide1-t{0}" -f $t) }
+                Keys '{RIGHT}'
+                foreach ($t in 1, 2, 4, 7) { Start-Sleep -Seconds $(if ($t -le 2) { 1 } elseif ($t -eq 4) { 2 } else { 3 }); Shot ("51-cold-slide2-t{0}" -f $t) }
+                "cold: show is on slide $($sc.View.CurrentShowPosition)"
+                try { $sc.View.Exit() } catch {}
+            }
+            try { $pd.Saved = -1; $pd.Close() } catch {}
+        }
+    }
+    # a PC without the add-in, in a slide show
+    $u1 = Join-Path $Variants 'U1.pptx'
+    if (Test-Path $u1) {
+        $pu = Open-Deck $u1
+        if ($pu) {
+            Start-Sleep -Seconds 8
+            $su = $null
+            try { $su = $pu.SlideShowSettings.Run() } catch { "U1 Run failed: $_" }
+            if ($su) { try { $su.Activate() } catch {}; Start-Sleep -Seconds 5; Shot '60-unregistered-show-slide1'; Keys '{RIGHT}'; Start-Sleep -Seconds 4; Shot '61-unregistered-show-slide2'; try { $su.View.Exit() } catch {} }
+            try { $pu.Saved = -1; $pu.Close() } catch {}
+        }
+    }
+}
 WebViews 'after slide show'
 
 # Save a copy the way a teacher would, to see what PowerPoint writes back.
