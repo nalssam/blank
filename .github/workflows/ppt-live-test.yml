@@ -75,7 +75,7 @@ jobs:
           Run 'qa' 'python html-in-ppt\scripts\qa_live_pptx.py C:\live\deck.pptx'
           Run 'variants' 'python html-in-ppt\ci\make_variants.py C:\live\deck.pptx html-in-ppt\ci\ms-content-template.pptx C:\live\variants'
           Run 'selftest deck' 'python html-in-ppt\scripts\build_live_pptx.py html-in-ppt\ci\selftest.html -o C:\live\variants\B1.pptx'
-          Run 'click-advance deck' 'python html-in-ppt\scripts\build_live_pptx.py html-in-ppt\demo\deck.html -o C:\live\variants\C1.pptx --click-advance'
+          Run 'no-click-advance deck' 'python html-in-ppt\scripts\build_live_pptx.py html-in-ppt\demo\deck.html -o C:\live\variants\C1.pptx --no-click-advance'
           Run 'register' 'python html-in-ppt\scripts\register_addin.py --manifest C:\live\manifest.xml'
           Run 'status' 'python html-in-ppt\scripts\register_addin.py --manifest C:\live\manifest.xml --status'
           # control manifests for the diagnosis matrix (registered directly)

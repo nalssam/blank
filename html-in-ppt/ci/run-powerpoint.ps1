@@ -259,7 +259,9 @@ function HumanShow($deck, [string]$tag) {
     "[$tag] after the in-deck next button: show is on slide $($sh.View.CurrentShowPosition)"
     Shot "42-$tag-after-deck-next"
     # Esc with the keyboard inside the HTML: can the presenter still end the show?
+    # (Not on the last slide of a deck whose clicks turn pages: that click would leave the show.)
     Mark "human-$tag-esc"
+    try { if ($sh.View.CurrentShowPosition -ge $Slides) { Keys '{LEFT}'; Start-Sleep -Seconds 3 } } catch {}
     $p = StagePoint 960 620 $full
     Hover $p[0] $p[1]; Start-Sleep -Milliseconds 500
     ClickAt $p[0] $p[1] "[$tag] plain spot before Esc"
@@ -307,17 +309,17 @@ function WindowShow($deck, [string]$tag) {
     Start-Sleep -Seconds 2
     try { $deck.SlideShowSettings.ShowType = 1 } catch {}
 }
-HumanShow $pres 'noclick'
-WindowShow $pres 'noclick'
+HumanShow $pres 'clickadv'       # converter default: a click turns the page where the HTML is not running
+WindowShow $pres 'clickadv'
 
 if ($Variants -and (Test-Path $Variants)) {
-    # the same deck built with --click-advance: what happens when a click may turn the page
+    # the same deck built with --no-click-advance: clicks never turn the page
     $c1 = Join-Path $Variants 'C1.pptx'
     if (Test-Path $c1) {
         $pc = Open-Deck $c1
         if ($pc) {
             Start-Sleep -Seconds 12
-            HumanShow $pc 'clickadv'
+            HumanShow $pc 'noclick'
             try { $pc.Saved = -1; $pc.Close() } catch {}
         }
     }
