@@ -80,13 +80,13 @@ function Open-Deck([string]$path) {
 
 # Phase A: which link of the chain works?
 if ($Variants -and (Test-Path $Variants)) {
-    foreach ($d in 'D4', 'D5', 'D2', 'D3') {
+    foreach ($d in 'D4', 'D5', 'D2', 'D3', 'U1', 'Z1', 'Z2', 'Z3', 'Z4', 'Z5') {
         $f = Join-Path $Variants "$d.pptx"
         if (-not (Test-Path $f)) { continue }
         Mark "open-$d"
         $p = Open-Deck $f
         if (-not $p) { "A/$d could not be opened"; continue }
-        Start-Sleep -Seconds 22
+        Start-Sleep -Seconds 16
         Shot "A-$d"
         if ($d -eq 'D4') { WebViews 'first add-in document open' }
         Mark "close-$d"

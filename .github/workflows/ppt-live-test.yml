@@ -29,6 +29,9 @@ jobs:
             channel: Current
           - product: ProPlus2024Volume
             channel: PerpetualVL2024
+          - product: ProPlus2019Volume      # volume 2019 always uses the IE11 webview: only the notice must show
+            channel: PerpetualVL2019
+            legacy: true
     steps:
       - uses: actions/checkout@v4
 
@@ -100,7 +103,7 @@ jobs:
           $child = Start-Process powershell -PassThru -WindowStyle Hidden -RedirectStandardOutput C:\live\run.out -RedirectStandardError C:\live\run.err -ArgumentList @(
             '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'html-in-ppt\ci\run-powerpoint.ps1',
             '-Pptx', 'C:\live\deck.pptx', '-Manifest', $manifest, '-OutDir', 'C:\live\out', '-Variants', 'C:\live\variants')
-          $deadline = (Get-Date).AddMinutes(13)
+          $deadline = (Get-Date).AddMinutes(17)
           $n = 0
           while (-not $child.HasExited -and (Get-Date) -lt $deadline) {
             Start-Sleep -Seconds 30
@@ -140,8 +143,12 @@ jobs:
           $deck = @($log | Select-String '"ev":"deck-ready"').Count
           $clicks = @($log | Select-String '"ev":"deck-click"').Count
           $inputs = @($log | Select-String '"ev":"deck-input"').Count
-          "VERDICT office-ready=$ready deck-ready=$deck deck-click=$clicks deck-input=$inputs"
-          if ($ready -lt 1 -or $deck -lt 1) { Write-Host '::error::The add-in did not run inside PowerPoint'; exit 1 }
+          $loads = @($log | Select-String '"ev":"page-load"').Count
+          $legacy = @($log | Select-String '"ev":"page-load".*Trident').Count
+          "VERDICT page-load=$loads office-ready=$ready deck-ready=$deck deck-click=$clicks deck-input=$inputs legacy-engine-loads=$legacy"
+          if ('${{ matrix.legacy }}' -eq 'true') {
+            if ($loads -lt 1) { Write-Host '::error::The add-in page was not loaded by the legacy webview'; exit 1 }
+          } elseif ($ready -lt 1 -or $deck -lt 1) { Write-Host '::error::The add-in did not run inside PowerPoint'; exit 1 }
 
       - uses: actions/upload-artifact@v4
         if: always()

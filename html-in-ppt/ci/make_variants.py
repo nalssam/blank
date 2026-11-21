@@ -6,6 +6,8 @@
   D3 = our deck, control manifest id (minimal ASCII manifest)
   D4 = Microsoft's template deck, control manifest id
   D5 = Microsoft's template deck, manifest pointing at a public https page
+  U1 = our deck with an add-in id that is not registered (what an unprepared PC shows)
+  Z1..Z5 = our deck with the HTML of slide 1 padded to 0.5 / 1 / 1.9 / 4 / 10 MB (settings size limit)
 """
 import sys
 import zipfile
@@ -23,6 +25,26 @@ def rewrite(src: Path, dst: Path, old: str, new: str) -> None:
             data = zin.read(item.filename)
             if item.filename.endswith(".xml") and old.encode() in data:
                 data = data.replace(old.encode(), new.encode())
+            zout.writestr(item, data)
+
+
+def pad_html(src: Path, dst: Path, target_bytes: int) -> None:
+    """Copy the deck, growing the HTML stored for slide 1 to about target_bytes (JSON size)."""
+    import json
+    import re
+    with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == "ppt/webextensions/webextension1.xml":
+                text = data.decode("utf-8")
+                m = re.search(r'<we:property name="html" value="([^"]*)"/>', text)
+                raw = m.group(1).replace("&quot;", '"').replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+                html = json.loads(raw)
+                pad = max(0, target_bytes - len(json.dumps(html)))
+                html = html.replace("</body>", "<!--" + "x" * pad + "--></body>")
+                enc = json.dumps(html).replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+                text = text[:m.start(1)] + enc + text[m.end(1):]
+                data = text.encode("utf-8")
             zout.writestr(item, data)
 
 
@@ -59,6 +81,9 @@ def main() -> None:
     rewrite(deck, out / "D3.pptx", OURS, CONTROL)
     rewrite(template, out / "D4.pptx", ZERO, CONTROL)
     rewrite(template, out / "D5.pptx", ZERO, PUBLIC)
+    rewrite(deck, out / "U1.pptx", OURS, "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d")      # an id nobody registered
+    for label, size in (("Z1", 500_000), ("Z2", 1_000_000), ("Z3", 1_900_000), ("Z4", 4_000_000), ("Z5", 10_000_000)):
+        pad_html(deck, out / f"{label}.pptx", size)
     (out / "manifest-control.xml").write_text(
         manifest(CONTROL, "https://localhost:3000/index.html?m=control", "Live HTML control"), encoding="utf-8")
     (out / "manifest-public.xml").write_text(

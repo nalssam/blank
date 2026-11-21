@@ -201,6 +201,37 @@ class Build(unittest.TestCase):
         self.assertFalse((self.dir / "big.pptx").exists())
 
 
+class Template(unittest.TestCase):
+    """스킬에 들어 있는 시작 틀이 그대로 변환되고 규칙을 지키는지 본다(스킬 폴더 안에서만)."""
+    TEMPLATE = HERE.parent / "assets" / "deck-template.html"
+
+    @unittest.skipUnless(TEMPLATE.is_file(), "assets/deck-template.html 이 없는 위치")
+    def test_template_builds_clean(self):
+        import re
+        html = self.TEMPLATE.read_text(encoding="utf-8")
+        self.assertEqual(B.count_slides(html), 6)
+        self.assertTrue(all(B.extract_notes(html, 6)), "모든 장에 발표자 노트가 있어야 한다")
+        self.assertIn("window.__LIVE_SLIDE__", html)
+        hosts = set(re.findall(r"https?://([A-Za-z0-9.-]+)", html)) - {"www.w3.org"}
+        self.assertEqual(hosts, set(), "시작 틀은 인터넷 주소를 불러오지 않는다")
+        for banned in ("localStorage", "alert(", "confirm(", "prompt("):
+            self.assertNotIn(banned, html)
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "t.pptx"
+            code, log = run_main(B, ["build", str(self.TEMPLATE), "-o", str(out), "--browser", "none"])
+            self.assertEqual(code, 0, log)
+            for lst in (Q.errors, Q.warns, Q.info):
+                lst.clear()
+            code, log = run_main(Q, ["qa", str(out)])
+            self.assertEqual(code, 0, log)
+            self.assertIn("주의 0건", log)
+
+    @unittest.skipUnless((HERE.parent / "assets" / "manifest.xml").is_file(), "assets/manifest.xml 이 없는 위치")
+    def test_manifest_matches_scripts(self):
+        self.assertEqual(R.manifest_id(HERE.parent / "assets" / "manifest.xml"), B.ADDIN_ID)
+        self.assertTrue(R.manifest_url(HERE.parent / "assets" / "manifest.xml").startswith("https://"))
+
+
 class Qa(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
