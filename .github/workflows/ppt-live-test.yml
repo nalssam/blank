@@ -1,0 +1,275 @@
+name: ppt-live-test
+
+# Opens the converted deck in real desktop PowerPoint on a Windows runner and records
+# whether the HTML actually runs inside the slides.
+on:
+  push:
+    branches: [ccr-fa7c416c-gy15et]
+    paths:
+      - 'html-in-ppt/**'
+      - '.github/workflows/ppt-live-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ppt-live-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  powerpoint:
+    if: ${{ !contains(github.event.head_commit.message, '[hosted-only]') }}
+    runs-on: windows-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - product: O365ProPlusRetail
+            channel: Current
+            language: ko-kr                 # Korean UI, to see the messages teachers will see
+          - product: ProPlus2024Volume
+            channel: PerpetualVL2024
+          - product: ProPlus2021Volume      # LTSC 2021, common on school PCs
+            channel: PerpetualVL2021
+          - product: ProPlus2019Volume      # volume 2019 always uses the IE11 webview: only the notice must show
+            channel: PerpetualVL2019
+            legacy: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PowerPoint (${{ matrix.product }})
+        shell: powershell
+        run: ./html-in-ppt/ci/install-office.ps1 -Product '${{ matrix.product }}' -Channel '${{ matrix.channel }}' -Language '${{ matrix.language || 'en-us' }}'
+
+      - name: Prepare the localhost certificate and the test manifest
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force C:\live | Out-Null
+          $cert = New-SelfSignedCertificate -DnsName 'localhost' -CertStoreLocation 'Cert:\LocalMachine\My' -NotAfter (Get-Date).AddDays(3) -KeyExportPolicy Exportable -KeyAlgorithm RSA -KeyLength 2048
+          $pw = ConvertTo-SecureString -String 'livehtml' -Force -AsPlainText
+          Export-PfxCertificate -Cert $cert -FilePath C:\live\localhost.pfx -Password $pw -CryptoAlgorithmOption AES256_SHA256 | Out-Null
+          Export-Certificate -Cert $cert -FilePath C:\live\localhost.cer | Out-Null
+          Import-Certificate -FilePath C:\live\localhost.cer -CertStoreLocation 'Cert:\LocalMachine\Root' | Out-Null
+          $tpl = Get-Content html-in-ppt\addin\manifest.template.xml -Raw -Encoding UTF8
+          $m = $tpl.Replace('{{HOST}}', 'https://localhost:3000').Replace('{{ID}}', '6f2b8c1e-4d7a-4e55-9a3b-2c8f5d1e7a90').Replace('{{VERSION}}', '1.0.0.0')
+          [IO.File]::WriteAllText('C:\live\manifest.xml', $m, (New-Object Text.UTF8Encoding($false)))
+          # WebView2 diagnostics for elevated processes: only the HKLM policy is honoured
+          [Microsoft.Win32.Registry]::SetValue('HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments', '*', '--remote-debugging-port=9222 --remote-allow-origins=*')
+          'certificate and manifest ready'
+
+      - name: Build the deck on Windows (converter, QA, registration)
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force C:\live\logs | Out-Null
+          function Run([string]$label, [string]$cmd) {
+            "### $label" | Add-Content C:\live\logs\build.txt
+            cmd /c "$cmd >> C:\live\logs\build.txt 2>&1"
+            "exit=$LASTEXITCODE" | Add-Content C:\live\logs\build.txt
+            if ($LASTEXITCODE -ne 0) { Get-Content C:\live\logs\build.txt -Encoding UTF8 -Tail 25; throw "$label failed ($LASTEXITCODE)" }
+          }
+          Run 'python' 'python --version'
+          Run 'pip' 'python -m pip install --quiet python-pptx'
+          Run 'build' 'python html-in-ppt\scripts\build_live_pptx.py html-in-ppt\demo\deck.html -o C:\live\deck.pptx'
+          Run 'qa' 'python html-in-ppt\scripts\qa_live_pptx.py C:\live\deck.pptx'
+          Run 'variants' 'python html-in-ppt\ci\make_variants.py C:\live\deck.pptx html-in-ppt\ci\ms-content-template.pptx C:\live\variants'
+          Run 'selftest deck' 'python html-in-ppt\scripts\build_live_pptx.py html-in-ppt\ci\selftest.html -o C:\live\variants\B1.pptx'
+          Run 'no-click-advance deck' 'python html-in-ppt\scripts\build_live_pptx.py html-in-ppt\demo\deck.html -o C:\live\variants\C1.pptx --no-click-advance'
+          Run 'register' 'python html-in-ppt\scripts\register_addin.py --manifest C:\live\manifest.xml'
+          Run 'status' 'python html-in-ppt\scripts\register_addin.py --manifest C:\live\manifest.xml --status'
+          # control manifests for the diagnosis matrix (registered directly)
+          $dev = 'HKCU:\SOFTWARE\Microsoft\Office\16.0\Wef\Developer'
+          $korean = (Get-ChildItem C:\live\variants -Directory | Select-Object -First 1).FullName   # folder with Korean letters and a space
+          Set-ItemProperty -Path $dev -Name '0d1b6a3e-52a7-4b1c-9a39-7e2f4c1d8b55' -Value (Join-Path $korean 'manifest-control.xml')
+          Set-ItemProperty -Path $dev -Name '3c9e2f71-8a44-4d0b-b6f5-1e7a90c2d4b8' -Value 'C:\live\variants\manifest-public.xml'
+          Set-ItemProperty -Path $dev -Name '5b7d9f13-2c4e-4a6b-8d0f-3a5c7e9b1d2f' -Value 'C:\live\variants\manifest-dead.xml'
+          'build ok'
+
+      - name: Validate the manifests with Microsoft's validator
+        shell: powershell
+        continue-on-error: true
+        run: |
+          cmd /c "npx --yes office-addin-manifest validate C:\live\manifest.xml > C:\live\logs\validate-ours.txt 2>&1"
+          cmd /c "npx --yes office-addin-manifest validate C:\live\variants\manifest-public.xml > C:\live\logs\validate-control.txt 2>&1"
+          Get-Content C:\live\logs\validate-ours.txt -Tail 12
+
+      - name: Run the deck in PowerPoint
+        shell: powershell
+        run: |
+          # The automation runs in a child process under a watchdog; the parent keeps taking
+          # screenshots, so a blocking dialog shows up in the results instead of hanging the job.
+          . .\html-in-ppt\ci\lib.ps1
+          New-Item -ItemType Directory -Force C:\live\out | Out-Null
+          # The add-in server has to be started in this step: processes of an earlier step are gone by now.
+          $server = Start-Process node -PassThru -WindowStyle Hidden -RedirectStandardOutput C:\live\server.out -RedirectStandardError C:\live\server.err -ArgumentList 'html-in-ppt\ci\server.js', 'html-in-ppt\addin', 'C:\live\localhost.pfx', 'C:\live\server.log'
+          Start-Sleep -Seconds 4
+          $r = Invoke-WebRequest https://localhost:3000/index.html -UseBasicParsing
+          "server check: $($r.StatusCode) $($r.Content.Length) bytes"
+          # Register again the way a colleague without the skill does: the published one-liner (pointed at this server).
+          Copy-Item C:\live\manifest.xml html-in-ppt\addin\manifest.xml -Force
+          $env:LIVEHTML_SITE = 'https://localhost:3000'
+          powershell -NoProfile -Command "irm https://localhost:3000/unregister.ps1 | iex" *> C:\live\logs\oneliner.txt
+          "after unregister: $((Get-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Office\16.0\Wef\Developer').'6f2b8c1e-4d7a-4e55-9a3b-2c8f5d1e7a90')" | Add-Content C:\live\logs\oneliner.txt
+          powershell -NoProfile -Command "irm https://localhost:3000/register.ps1 | iex" *>> C:\live\logs\oneliner.txt
+          $reg = (Get-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Office\16.0\Wef\Developer').'6f2b8c1e-4d7a-4e55-9a3b-2c8f5d1e7a90'
+          "one-liner registration -> $reg  exists=$(Test-Path $reg)"
+          if (-not $reg -or -not (Test-Path $reg)) { throw 'the one-liner did not register the add-in' }
+          $manifest = Join-Path $env:LOCALAPPDATA 'LiveHTML\manifest.xml'
+          $child = Start-Process powershell -PassThru -WindowStyle Hidden -RedirectStandardOutput C:\live\run.out -RedirectStandardError C:\live\run.err -ArgumentList @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'html-in-ppt\ci\run-powerpoint.ps1',
+            '-Pptx', 'C:\live\deck.pptx', '-Manifest', $manifest, '-OutDir', 'C:\live\out', '-Variants', 'C:\live\variants')
+          $deadline = (Get-Date).AddMinutes(24)
+          $n = 0
+          while (-not $child.HasExited -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 30
+            $n++
+            Shot ("tick-{0:d2}" -f $n) 'C:\live\out' | Out-Null
+          }
+          if (-not $child.HasExited) {
+            'WATCHDOG: automation did not finish in time'
+            Windows 'watchdog'
+            Shot 'watchdog' 'C:\live\out'
+            Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue
+          }
+          Get-Process POWERPNT -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          "automation finished: exited=$($child.HasExited)"
+          Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+
+      - name: Summary
+        if: always()
+        shell: powershell
+        run: |
+          '==== automation output (without screenshot grids)'
+          Get-Content C:\live\run.out -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch '^SHOT ' -and $_ -notmatch 'class=(Shell_TrayWnd|EdgeUiInputTopWndClass|Progman|CASCADIA)' }
+          '==== automation errors'
+          Get-Content C:\live\run.err -ErrorAction SilentlyContinue | Select-Object -First 30
+          '==== add-in server log'
+          if (Test-Path C:\live\server.log) {
+            Get-Content C:\live\server.log | ForEach-Object { if ($_.Length -gt 420) { $_.Substring(0, 420) } else { $_ } }
+          } else { 'no server log' }
+          Get-Content C:\live\server.err -ErrorAction SilentlyContinue | Select-Object -First 10
+
+      - name: Verdict
+        if: always()
+        shell: powershell
+        run: |
+          $log = if (Test-Path C:\live\server.log) { Get-Content C:\live\server.log } else { @() }
+          $ready = @($log | Select-String '"ev":"office-ready"').Count
+          $deck = @($log | Select-String '"ev":"deck-ready"').Count
+          $clicks = @($log | Select-String '"ev":"deck-click"').Count
+          $inputs = @($log | Select-String '"ev":"deck-input"').Count
+          $loads = @($log | Select-String '"ev":"page-load"').Count
+          $legacy = @($log | Select-String '"ev":"page-load".*Trident').Count
+          "VERDICT page-load=$loads office-ready=$ready deck-ready=$deck deck-click=$clicks deck-input=$inputs legacy-engine-loads=$legacy"
+          $self = @($log | Select-String '"ev":"deck-ready".*SELFTEST') | Select-Object -First 1
+          if ($self) { "SELFTEST " + ([regex]::Match($self.Line, 'SELFTEST (.*?\})\"').Groups[1].Value -replace '\\"', '"') } else { 'SELFTEST (no result)' }
+          $out = if (Test-Path C:\live\run.out) { Get-Content C:\live\run.out } else { @() }
+          $out | Select-String '^\[(noclick|clickadv)\] (PageDown|RIGHT|LEFT|after Esc|window show|slide background|after the in-deck)' | ForEach-Object { $_.Line }
+          if ('${{ matrix.legacy }}' -eq 'true') {
+            if ($loads -lt 1) { Write-Host '::error::The add-in page was not loaded by the legacy webview'; exit 1 }
+          } elseif ($ready -lt 1 -or $deck -lt 1) { Write-Host '::error::The add-in did not run inside PowerPoint'; exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ppt-live-${{ matrix.product }}
+          path: |
+            C:\live\out
+            C:\live\variants
+            C:\live\server.log
+            C:\live\manifest.xml
+            C:\live\deck.pptx
+            C:\live\run.out
+            C:\live\run.err
+            C:\live\logs
+          if-no-files-found: warn
+
+  hosted:
+    # Real hosting: the add-in page, the skill zip and the registration one-liner come from the PRODUCTION site
+    # (after the merge of bunpil_pack#1), so this is exactly what a teacher gets, end to end.
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      ORIGIN: https://nalssam-bunpil.vercel.app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PowerPoint
+        shell: powershell
+        run: ./html-in-ppt/ci/install-office.ps1 -Product 'ProPlus2024Volume' -Channel 'PerpetualVL2024'
+
+      - name: Get the skill as distributed and build its template deck
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force C:\live\logs, C:\live\out | Out-Null
+          Invoke-WebRequest "$env:ORIGIN/app/skills/live-pptx.zip" -OutFile C:\live\live-pptx.zip -UseBasicParsing
+          Expand-Archive C:\live\live-pptx.zip -DestinationPath C:\live\skill -Force
+          Get-ChildItem C:\live\skill -Recurse -File | ForEach-Object { $_.FullName.Substring(14) }
+          function Run([string]$label, [string]$cmd) {
+            "### $label" | Add-Content C:\live\logs\build.txt
+            cmd /c "$cmd >> C:\live\logs\build.txt 2>&1"
+            "exit=$LASTEXITCODE" | Add-Content C:\live\logs\build.txt
+            if ($LASTEXITCODE -ne 0) { Get-Content C:\live\logs\build.txt -Encoding UTF8 -Tail 25; throw "$label failed ($LASTEXITCODE)" }
+          }
+          Run 'pip' 'python -m pip install --quiet python-pptx'
+          Run 'build' 'python C:\live\skill\live-pptx\scripts\build_live_pptx.py C:\live\skill\live-pptx\assets\deck-template.html -o C:\live\hosted.pptx --shots C:\live\out\preview'
+          Run 'qa' 'python C:\live\skill\live-pptx\scripts\qa_live_pptx.py C:\live\hosted.pptx'
+          'build ok'
+
+      - name: Register with the published one-liner
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Exactly what a teacher types: the published one-liner with its default address (no override, no rewriting).
+          powershell -NoProfile -Command "irm https://nalssam-bunpil.vercel.app/live-html/register.ps1 | iex" *> C:\live\logs\oneliner.txt
+          $m = Join-Path $env:LOCALAPPDATA 'LiveHTML\manifest.xml'
+          (Select-String -Path $m -Pattern 'SourceLocation').Line
+          if (-not (Select-String -Path $m -Pattern 'https://nalssam-bunpil.vercel.app/live-html/app.html' -SimpleMatch -Quiet)) { throw 'the registered manifest does not point at the production page' }
+          cmd /c "python C:\live\skill\live-pptx\scripts\register_addin.py --status >> C:\live\logs\oneliner.txt 2>&1"
+          "status exit=$LASTEXITCODE"
+          [Microsoft.Win32.Registry]::SetValue('HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments', '*', '--remote-debugging-port=9222 --remote-allow-origins=*')
+          cmd /c "npm install --prefix html-in-ppt\ci playwright-core --no-audit --no-fund > C:\live\logs\npm.txt 2>&1"
+          "npm exit=$LASTEXITCODE"
+
+      - name: Run the deck in PowerPoint (hosted page)
+        shell: powershell
+        run: |
+          . .\html-in-ppt\ci\lib.ps1
+          $child = Start-Process powershell -PassThru -WindowStyle Hidden -RedirectStandardOutput C:\live\run.out -RedirectStandardError C:\live\run.err -ArgumentList @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'html-in-ppt\ci\run-hosted.ps1', '-Pptx', 'C:\live\hosted.pptx', '-OutDir', 'C:\live\out')
+          $deadline = (Get-Date).AddMinutes(12)
+          $n = 0
+          while (-not $child.HasExited -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 30
+            $n++
+            Shot ("tick-{0:d2}" -f $n) 'C:\live\out' | Out-Null
+          }
+          if (-not $child.HasExited) { 'WATCHDOG: automation did not finish in time'; Windows 'watchdog'; Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue }
+          Get-Process POWERPNT -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Get-Content C:\live\run.out -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch '^SHOT ' -and $_ -notmatch 'class=(Shell_TrayWnd|EdgeUiInputTopWndClass|Progman|CASCADIA)' }
+
+      - name: Verdict
+        if: always()
+        shell: powershell
+        run: |
+          $out = if (Test-Path C:\live\run.out) { Get-Content C:\live\run.out } else { @() }
+          $loaded = @($out | Select-String '^DOM opened .*"edg":"Edg/.*"slide":1').Count
+          $flip = @($out | Select-String '^DOM edit slide 2 .*"flipsOpen":1').Count
+          $answer = @($out | Select-String '^DOM edit slide 4 .*"ok":1').Count
+          "VERDICT hosted page ran=$loaded edit-click-flip=$flip edit-click-answer=$answer"
+          if ($loaded -lt 1) { Write-Host '::error::The hosted add-in page did not run the deck inside PowerPoint'; exit 1 }
+          if ($flip -lt 1 -or $answer -lt 1) { Write-Host '::error::A real click in the editing view did not change the deck (see the DOM lines and screenshots)'; exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ppt-live-hosted
+          path: |
+            C:\live\out
+            C:\live\hosted.pptx
+            C:\live\run.out
+            C:\live\run.err
+            C:\live\logs
+          if-no-files-found: warn
