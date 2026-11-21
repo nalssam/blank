@@ -30,7 +30,15 @@ if (-not $pres) { "Could not open the presentation"; exit 1 }
 "Opened: $($pres.FullName) slides=$($pres.Slides.Count)"
 Start-Sleep -Seconds ($LoadWait + 8)
 Shot 'H02-opened'; Windows 'opened'
-Dom 'opened'
+# The page comes from the internet here: give the deck a little longer before the first reading.
+$dom = ''
+foreach ($try in 1..6) {
+    $dom = Dom 'opened'
+    if ("$dom" -match '"slide":1') { break }
+    "first reading not ready yet (try $try)"
+    Start-Sleep -Seconds 5
+}
+$dom
 
 $w = $ppt.ActiveWindow
 function EditRect {

@@ -19,7 +19,18 @@ const { chromium } = require('playwright-core');
           size: innerWidth + 'x' + innerHeight,
           edg: /Edg\/\d+/.exec(navigator.userAgent) && /Edg\/\d+/.exec(navigator.userAgent)[0],
         }));
-        const deck = page.frames().find((f) => f !== page.mainFrame());
+        // Office can add frames of its own to the page: the deck is the frame that carries the slide marker.
+        let deck = null;
+        let other = null;
+        for (const f of page.frames()) {
+          if (f === page.mainFrame()) continue;
+          let marked = false;
+          try { marked = await f.evaluate(() => typeof window.__LIVE_SLIDE__ !== 'undefined'); } catch (e) { /* frame gone */ }
+          if (marked) { deck = f; break; }
+          other = other || f;
+        }
+        deck = deck || other;
+        info.host.frames = page.frames().length;
         if (deck) {
           info.deck = await deck.evaluate(() => {
             const q = (s) => document.querySelectorAll(s).length;

@@ -29,6 +29,7 @@
   t('cf', function () { return confirm('ok?'); });
   t('pr', function () { return prompt('name?', 'dflt'); });
   t('hs', function () { history.replaceState({}, '', '#x'); return 'ok'; });
+  t('wv', function () { return typeof (window.chrome && window.chrome.webview); });   // is the host object reachable from the deck?
   t('hash', function () { document.getElementById('hash').click(); return 'alive'; });
   t('ext', function () { document.getElementById('ext').click(); return 'alive'; });
   var s = JSON.stringify(r);
