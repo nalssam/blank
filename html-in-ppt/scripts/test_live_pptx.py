@@ -74,8 +74,20 @@ class Html(unittest.TestCase):
 
     def test_marker_goes_right_after_head(self):
         out = B.with_slide_marker("<html><head><title>x</title></head></html>", 4)
-        self.assertIn("<head><script>window.__LIVE_SLIDE__=4;</script><title>", out)
+        self.assertRegex(out, r"^<html><head><script>window\.__LIVE_SLIDE__=4;.*</script><title>")
         self.assertTrue(B.with_slide_marker("<p>머리 없음</p>", 2).startswith("<script>window.__LIVE_SLIDE__=2;"))
+
+    def test_marker_is_not_fooled_by_comments_or_header(self):
+        html = "<!-- <head> in a comment --><header>h</header><html><HEAD lang='ko'><title>x</title></HEAD></html>"
+        at = B.head_insertion_point(html)
+        self.assertEqual(html[:at].upper()[-16:], "<HEAD LANG='KO'>")
+        self.assertEqual(B.head_insertion_point("<!doctype html><header>x</header><p>y</p>"), len("<!doctype html>"))
+        self.assertEqual(B.head_insertion_point("<header>x</header>"), 0)
+
+    def test_lint_reports_things_that_differ_inside_powerpoint(self):
+        found = B.lint("<script>alert('a'); if(confirm('b')){localStorage.setItem('k',1)}</script><!-- <iframe> -->")
+        self.assertEqual(len(found), 3)
+        self.assertEqual(B.lint("<p>alertness is fine; my localStorages too</p>"), [])
 
     def test_read_text_handles_bom_and_cp949(self):
         with tempfile.TemporaryDirectory() as d:
@@ -156,7 +168,7 @@ class Build(unittest.TestCase):
         for i in (1, 2, 3):
             p = read_props(self.out, i)
             self.assertEqual(p["html"], self.tricky)
-            self.assertEqual((p["slide"], p["width"], p["height"]), (i, 1920, 1080))
+            self.assertEqual((p["slide"], p["width"], p["height"], p["v"]), (i, 1920, 1080, 1))
             self.assertTrue(p["poster"].startswith("data:image/jpeg;base64,"))
 
     def test_attribute_values_are_plain_ascii(self):

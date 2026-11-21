@@ -259,13 +259,38 @@ def xml_safe(text: str) -> str:
     return _XML_BAD.sub("", text)
 
 
+def head_insertion_point(html: str) -> int:
+    """추가 기능이 덱에 스크립트를 끼워 넣는 자리와 같은 곳: 진짜 <head> 바로 뒤(주석 속 "<head" 와 <header> 는 건너뛴다).
+    <head> 가 없으면 <html> 뒤, 그것도 없으면 doctype 뒤, 아무것도 없으면 맨 앞."""
+    masked = re.sub(r"<!--.*?-->", lambda m: " " * len(m.group(0)), html, flags=re.S)
+    for pattern in (r"<head(?=[\s>])[^>]*>", r"<html(?=[\s>])[^>]*>", r"<!doctype[^>]*>"):
+        m = re.search(pattern, masked, re.I)
+        if m:
+            return m.end()
+    return 0
+
+
 def with_slide_marker(html: str, slide: int) -> str:
-    """추가 기능이 실행할 때와 똑같은 방식으로 슬라이드 번호를 끼워 넣는다(미리보기 촬영용)."""
-    boot = f"<script>window.__LIVE_SLIDE__={int(slide)};</script>"
-    m = re.search(r"<head[^>]*>", html, re.I)
-    if m:
-        return html[:m.end()] + boot + html[m.end():]
-    return boot + html
+    """추가 기능이 실행할 때처럼 슬라이드 번호와 window.liveSlide 를 넣는다(미리보기 촬영용, 넘김은 아무 일도 하지 않는다)."""
+    n = int(slide)
+    boot = ("<script>window.__LIVE_SLIDE__=%d;window.liveSlide={index:%d,keys:true,next:function(){},prev:function(){},"
+            "first:function(){},last:function(){},goTo:function(){}};</script>" % (n, n))
+    at = head_insertion_point(html)
+    return html[:at] + boot + html[at:]
+
+
+LINT = (
+    (r"\b(?:window\.)?alert\s*\(", "alert() 는 PowerPoint 안에서 화면 위쪽의 알림 글자로 바뀐다(창이 뜨지 않는다)"),
+    (r"\b(?:window\.)?(?:confirm|prompt)\s*\(", "confirm()·prompt() 는 PowerPoint 안에서 묻지 않는다(confirm 은 항상 '예', prompt 는 기본값). 화면 안 단추·입력칸으로 바꾼다"),
+    (r"\b(?:localStorage|sessionStorage)\b|document\.cookie", "localStorage·sessionStorage·쿠키에 넣은 값은 그 슬라이드가 떠 있는 동안만 남고 슬라이드끼리 나누지 못한다"),
+    (r"<iframe\b", "다른 사이트를 넣은 틀(iframe)은 PowerPoint 안에서 로그인·저장이 안 될 수 있다"),
+)
+
+
+def lint(html: str) -> list:
+    """PowerPoint 안에서 브라우저와 다르게 동작하는 것을 찾아 알려 준다."""
+    text = re.sub(r"<!--.*?-->", " ", html, flags=re.S)
+    return [msg for pattern, msg in LINT if re.search(pattern, text)]
 
 
 # ───────────────────────── 미리보기 그림 ─────────────────────────
@@ -455,7 +480,7 @@ def build(html: str, slides: int, w: int, h: int, pngs: list, notes: list, title
         image_part = slide.part.related_part(pic._element.blipFill.blip.rEmbed)
 
         # 2) webextension 파트 - HTML 원문과 작은 미리보기가 여기에 들어간다
-        props = {"html": html, "slide": i, "width": w, "height": h, "poster": poster_data_uri(png)}
+        props = {"html": html, "slide": i, "width": w, "height": h, "poster": poster_data_uri(png), "v": 1}
         per_slide = max(per_slide, sum(len(json.dumps(v)) for v in props.values()))
         we_part = Part(PackURI(f"/ppt/webextensions/webextension{i}.xml"), CT_WEBEXT, prs.part.package, b"")
         snap_rid = we_part.relate_to(image_part, RT_IMAGE)
@@ -580,6 +605,8 @@ def main() -> int:
         print(f"  미리보기 모아보기: {sheet}")
     for slide_no, msg in problems[:10]:
         print(f"  주의: 슬라이드 {slide_no} 를 열 때 스크립트 오류 - {msg}")
+    for msg in lint(html):
+        print(f"  알림: {msg}")
     if not browser:
         print("  주의: Edge·Chrome 을 찾지 못해 미리보기를 안내 그림으로 대신했습니다(--browser 로 경로 지정).")
     elif drawn < n:
