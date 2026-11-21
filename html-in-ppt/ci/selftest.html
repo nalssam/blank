@@ -36,6 +36,32 @@
   document.getElementById('out').textContent = s.replace(/,/g, ',\n');
   document.title = 'SELFTEST ' + s;
 })();
+// Isolation check (results go to the test probe as "deck-office" events): from inside the deck's frame, try to reach
+// PowerPoint the way the add-in page itself does. Expected: Office never becomes ready here and no document data is readable.
+(function () {
+  function report(o) { o.__probe = 1; o.ev = 'deck-office'; try { parent.postMessage(o, '*'); } catch (e) {} }
+  var done = false;
+  try { window.chrome.webview.postMessage('live-html-selftest'); report({ state: 'webview.postMessage did not throw' }); }
+  catch (e) { report({ state: 'webview.postMessage threw', msg: String((e && e.message) || e).slice(0, 120) }); }
+  try { report({ state: 'hostObjects', kind: typeof window.chrome.webview.hostObjects }); } catch (e2) { report({ state: 'hostObjects threw' }); }
+  var sc = document.createElement('script');
+  sc.src = 'https://appsforoffice.microsoft.com/lib/1/hosted/office.js';
+  sc.onload = function () {
+    try {
+      Office.onReady(function (info) {
+        if (done) { return; }
+        done = true;
+        var r = { state: 'office.js ready inside the deck', host: info && info.host, platform: info && info.platform };
+        try { r.slide = Office.context.document.settings.get('slide'); r.htmlLen = (Office.context.document.settings.get('html') || '').length; }
+        catch (e) { r.settingsErr = String((e && e.message) || e).slice(0, 120); }
+        report(r);
+      });
+    } catch (e) { report({ state: 'Office.onReady threw', msg: String((e && e.message) || e).slice(0, 120) }); }
+  };
+  sc.onerror = function () { report({ state: 'office.js did not load' }); };
+  setTimeout(function () { if (!done) { done = true; report({ state: 'office.js never became ready (10 s)', office: typeof window.Office }); } }, 10000);
+  document.head.appendChild(sc);
+})();
 </script>
 </body>
 </html>

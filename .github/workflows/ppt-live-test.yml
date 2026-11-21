@@ -261,6 +261,7 @@ jobs:
           $answer = @($out | Select-String '^DOM edit slide 4 .*"ok":1').Count
           "VERDICT hosted page ran=$loaded edit-click-flip=$flip edit-click-answer=$answer"
           if ($loaded -lt 1) { Write-Host '::error::The hosted add-in page did not run the deck inside PowerPoint'; exit 1 }
+          if ($flip -lt 1 -or $answer -lt 1) { Write-Host '::error::A real click in the editing view did not change the deck (see the DOM lines and screenshots)'; exit 1 }
 
       - uses: actions/upload-artifact@v4
         if: always()
