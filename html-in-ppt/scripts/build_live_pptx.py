@@ -894,14 +894,17 @@ def with_slide_marker(html: str, slide: int) -> str:
     return html[:at] + boot + html[at:]
 
 
-def snapshot_page(html: str, slide: int) -> str:
+def snapshot_page(html: str, slide: int, w: int = 1920, h: int = 1080) -> str:
     """미리보기를 찍을 페이지. 추가 기능 페이지처럼 덱을 격리된 틀(<iframe sandbox srcdoc>) 안에서 연다.
 
     덱을 파일로 바로 열면 그 페이지는 컴퓨터의 어떤 파일이든 불러올 수 있어서, HTML 안으로 넣지 않은 덱 폴더 밖의
     파일(절대 경로·file:// 주소의 그림이나 문서)이 미리보기 그림에 찍힌다. 격리된 틀 안에서는 그런 파일이 열리지 않고,
-    그림도 PowerPoint 안에서 보이는 모습과 같아진다."""
-    return ('<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;overflow:hidden;'
-            'background:#fff}iframe{display:block;border:0;width:100%;height:100%;background:#fff}</style></head><body>'
+    그림도 PowerPoint 안에서 보이는 모습과 같아진다.
+
+    틀의 크기는 처음부터 w×h 픽셀로 못 박는다. 100% 로 두면 틀이 제 크기가 되기 전에 덱이 열려, 화면 크기에 맞춰 그리는
+    덱이 가끔 작게 찍힌다(같은 덱이 실행할 때마다 다르게 찍히던 문제)."""
+    return ('<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;overflow:hidden;'
+            f'background:#fff}}iframe{{display:block;border:0;width:{int(w)}px;height:{int(h)}px;background:#fff}}</style></head><body>'
             f'<iframe sandbox="{SNAPSHOT_SANDBOX}" allow="autoplay; fullscreen" srcdoc="'
             + htmllib.escape(with_slide_marker(html, slide), quote=True) + '"></iframe></body></html>')
 
@@ -980,7 +983,7 @@ def shoot(browser: str, html: str, slides: int, w: int, h: int, outdir: Path, wa
         print(f"  미리보기 찍는 중 {i}/{slides}", file=sys.stderr, flush=True)
         page = outdir / f"slide{i}.html"
         png = outdir / f"slide{i}.png"
-        page.write_text(snapshot_page(html, i), encoding="utf-8-sig")    # BOM: 틀림없이 UTF-8 로 읽힌다
+        page.write_text(snapshot_page(html, i, w, h), encoding="utf-8-sig")    # BOM: 틀림없이 UTF-8 로 읽힌다
         cmd = [browser] + flags + [f"--user-data-dir={profile}", f"--window-size={w},{h}",
                                    f"--virtual-time-budget={wait_ms}", f"--screenshot={png}", page.resolve().as_uri()]
         try:

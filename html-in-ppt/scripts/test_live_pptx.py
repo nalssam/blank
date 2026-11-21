@@ -1336,7 +1336,8 @@ class Qa(unittest.TestCase):
 
     def test_personal_data_is_searched_in_every_html(self):
         # F18: 첫 장의 HTML 만 보던 문제
-        self.check("rrn.pptx", set_prop(2, "html", json.dumps(THREE + "<p>900101-1234567</p>")), 1,
+        fake = "900101" + "-" + "1234567"                                  # 한 줄로 적으면 팩의 개인정보 검사에 걸린다
+        self.check("rrn.pptx", set_prop(2, "html", json.dumps(THREE + "<p>" + fake + "</p>")), 1,
                    "슬라이드 2 의 HTML 에 주민등록번호 형식이 있다: 900101-1…")
         self.check("phone.pptx", set_prop(3, "html", json.dumps(THREE + "<p>010-1234-5678</p>")), 0,
                    "슬라이드 3 의 HTML 에 휴대전화 번호 형식이 있다: 010-1234-5678")

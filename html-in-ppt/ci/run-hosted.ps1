@@ -49,13 +49,13 @@ function EditRect {
 
 # Editing view
 $w.View.GotoSlide(2); Start-Sleep -Seconds $LoadWait
-$p = StagePoint 383 611 (EditRect); ClickAt $p[0] $p[1] 'edit, flip card 1'; Start-Sleep -Seconds 2
+$p = StagePoint 383 608 (EditRect); ClickAt $p[0] $p[1] 'edit, flip card 1'; Start-Sleep -Seconds 2
 Shot 'H10-edit-slide2-flip'; Dom 'edit slide 2 after one click on card 1'
 $w.View.GotoSlide(4); Start-Sleep -Seconds $LoadWait
-$p = StagePoint 1392 412 (EditRect); ClickAt $p[0] $p[1] 'edit, option B'; Start-Sleep -Seconds 2
+$p = StagePoint 1391 431 (EditRect); ClickAt $p[0] $p[1] 'edit, option B'; Start-Sleep -Seconds 2
 Shot 'H11-edit-slide4-answer'; Dom 'edit slide 4 after click on option B'
 $w.View.GotoSlide(3); Start-Sleep -Seconds $LoadWait
-$p = StagePoint 600 347 (EditRect); ClickAt $p[0] $p[1] 'edit, denominator slider'; Start-Sleep -Seconds 2
+$p = StagePoint 465 571 (EditRect); ClickAt $p[0] $p[1] 'edit, denominator slider'; Start-Sleep -Seconds 2
 Shot 'H12-edit-slide3-slider'; Dom 'edit slide 3 after click on the slider'
 
 # Slide show
@@ -73,15 +73,15 @@ if ($show) {
         Start-Sleep -Seconds 2; Shot ("H21-show-slide{0}-t2" -f $i)
         Start-Sleep -Seconds ($LoadWait - 2); Shot ("H21-show-slide{0}" -f $i)
         if ($i -eq 2) {
-            $p = StagePoint 1537 611 $full; ClickAt $p[0] $p[1] 'show, flip card 3'; Start-Sleep -Seconds 2
+            $p = StagePoint 1537 608 $full; ClickAt $p[0] $p[1] 'show, flip card 3'; Start-Sleep -Seconds 2
             "position after click: $($show.View.CurrentShowPosition)"; Shot 'H22-show-slide2-flip'; Dom 'show slide 2 after click on card 3'
         }
         if ($i -eq 4) {
-            $p = StagePoint 529 412 $full; ClickAt $p[0] $p[1] 'show, option A'; Start-Sleep -Seconds 2
+            $p = StagePoint 529 431 $full; ClickAt $p[0] $p[1] 'show, option A'; Start-Sleep -Seconds 2
             "position after click: $($show.View.CurrentShowPosition)"; Shot 'H23-show-slide4-wrong'; Dom 'show slide 4 after click on option A'
         }
         if ($i -eq 6) {
-            foreach ($y in 417, 553, 689) { $p = StagePoint 960 $y $full; ClickAt $p[0] $p[1] "show, check at $y"; Start-Sleep -Seconds 1 }
+            foreach ($y in 398, 538, 678) { $p = StagePoint 960 $y $full; ClickAt $p[0] $p[1] "show, check at $y"; Start-Sleep -Seconds 1 }
             "position after clicks: $($show.View.CurrentShowPosition)"; Shot 'H24-show-slide6-checked'; Dom 'show slide 6 after three checks'
             [System.Windows.Forms.SendKeys]::SendWait('{LEFT}'); Start-Sleep -Seconds 4
             "after LEFT with the keyboard inside the HTML: slide show is on slide $($show.View.CurrentShowPosition)"
