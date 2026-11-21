@@ -54,6 +54,9 @@ Shot 'H10-edit-slide2-flip'; Dom 'edit slide 2 after one click on card 1'
 $w.View.GotoSlide(4); Start-Sleep -Seconds $LoadWait
 $p = StagePoint 1391 431 (EditRect); ClickAt $p[0] $p[1] 'edit, option B'; Start-Sleep -Seconds 2
 Shot 'H11-edit-slide4-answer'; Dom 'edit slide 4 after click on option B'
+# The deck's own reset button (circular arrow, bottom right): does the reload bring slide 4 back to its first state inside PowerPoint?
+$p = StagePoint 1584 1020 (EditRect); ClickAt $p[0] $p[1] 'edit, reset button'; Start-Sleep -Seconds ($LoadWait + 2)
+Shot 'H11b-edit-slide4-reset'; Dom 'edit slide 4 after reset'
 $w.View.GotoSlide(3); Start-Sleep -Seconds $LoadWait
 $p = StagePoint 465 571 (EditRect); ClickAt $p[0] $p[1] 'edit, denominator slider'; Start-Sleep -Seconds 2
 Shot 'H12-edit-slide3-slider'; Dom 'edit slide 3 after click on the slider'
