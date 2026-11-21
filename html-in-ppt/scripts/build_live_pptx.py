@@ -300,9 +300,12 @@ def find_browser(explicit: str = None):
     return None
 
 
-def shoot(browser: str, html: str, slides: int, w: int, h: int, outdir: Path, wait_ms: int) -> list:
-    """슬라이드별 PNG. 실패한 장은 None."""
-    out = []
+CONSOLE_RE = re.compile(r'CONSOLE[:(]\d+\)?\] "(.*?)", source: (\S*) \((\d+)\)')   # 크롬 판에 따라 CONSOLE(3) 또는 CONSOLE:3
+
+
+def shoot(browser: str, html: str, slides: int, w: int, h: int, outdir: Path, wait_ms: int):
+    """슬라이드별 PNG(실패한 장은 None)와, 열릴 때 난 스크립트 오류 목록 [(슬라이드, 메시지)]."""
+    out, problems = [], []
     profile = outdir / "profile"
     for i in range(1, slides + 1):
         page = outdir / f"slide{i}.html"
@@ -310,13 +313,43 @@ def shoot(browser: str, html: str, slides: int, w: int, h: int, outdir: Path, wa
         page.write_text(with_slide_marker(html, i), encoding="utf-8")
         cmd = [browser, "--headless=new", "--disable-gpu", "--no-sandbox", "--hide-scrollbars", "--mute-audio",
                "--no-first-run", "--no-default-browser-check", "--force-device-scale-factor=1",
+               "--enable-logging=stderr", "--log-level=0",
                f"--user-data-dir={profile}", f"--window-size={w},{h}", f"--virtual-time-budget={wait_ms}",
                f"--screenshot={png}", page.resolve().as_uri()]
         try:
-            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=90, check=False)
+            r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=90, check=False)
+            log = r.stderr.decode("utf-8", "replace")
         except (OSError, subprocess.TimeoutExpired):
-            pass
+            log = ""
+        for m in CONSOLE_RE.finditer(log):
+            msg = m.group(1)
+            if "Uncaught" in msg or "is not defined" in msg or "SyntaxError" in msg:
+                problems.append((i, f"{msg[:160]} (줄 {m.group(3)})"))
         out.append(png if png.is_file() and png.stat().st_size > 0 else None)
+    return out, problems
+
+
+def save_shots(pngs: list, folder: Path, cols: int = 3) -> Path:
+    """장마다 미리보기 PNG 와 모아보기(sheet.jpg)를 저장한다. 눈으로 겹침·잘림을 확인하는 용도."""
+    from PIL import Image, ImageDraw
+    folder.mkdir(parents=True, exist_ok=True)
+    thumbs = []
+    for i, png in enumerate(pngs, 1):
+        (folder / f"slide{i:02d}.png").write_bytes(png)
+        im = Image.open(io.BytesIO(png)).convert("RGB")
+        im.thumbnail((640, 640))
+        thumbs.append(im)
+    tw, th = thumbs[0].size
+    rows = (len(thumbs) + cols - 1) // cols
+    sheet = Image.new("RGB", (cols * tw + (cols + 1) * 12, rows * (th + 34) + 12), (255, 255, 255))
+    d = ImageDraw.Draw(sheet)
+    for i, im in enumerate(thumbs):
+        x, y = 12 + (i % cols) * (tw + 12), 12 + (i // cols) * (th + 34)
+        d.text((x, y), f"slide {i + 1}", fill=(90, 90, 90))
+        sheet.paste(im, (x, y + 18))
+        d.rectangle([x - 1, y + 17, x + tw, y + 18 + th], outline=(200, 200, 200))
+    out = folder / "sheet.jpg"
+    sheet.save(out, "JPEG", quality=85)
     return out
 
 
@@ -467,6 +500,7 @@ def main() -> int:
     ap.add_argument("--wait", type=int, default=4000, help="미리보기를 찍기 전 기다리는 시간(ms, 기본 4000)")
     ap.add_argument("--no-inline", action="store_true", help="로컬 그림·CSS·JS 를 HTML 안으로 넣지 않는다")
     ap.add_argument("--save-html", type=Path, help="한 파일로 합친 HTML 을 따로 저장한다")
+    ap.add_argument("--shots", type=Path, help="장마다 미리보기 PNG 와 모아보기(sheet.jpg)를 이 폴더에 저장한다")
     args = ap.parse_args()
 
     if not args.html.is_file():
@@ -508,7 +542,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         tmpdir = Path(tmp)
         browser = find_browser(args.browser)
-        shots = shoot(browser, html, n, w, h, tmpdir, args.wait) if browser else [None] * n
+        shots, problems = shoot(browser, html, n, w, h, tmpdir, args.wait) if browser else ([None] * n, [])
         pngs, drawn = [], 0
         for i, s in enumerate(shots, 1):
             if s is None:
@@ -517,6 +551,7 @@ def main() -> int:
                 drawn += 1
             pngs.append(normalize_png(s, w, h))
         info = build(html, n, w, h, pngs, notes, titles, out)
+        sheet = save_shots(pngs, args.shots) if args.shots else None
 
     print(f"완료: {out}")
     print(f"  슬라이드 {n}장 · HTML {len(html.encode('utf-8')) / 1024:.0f}KB · 파일 {out.stat().st_size / 1024:.0f}KB · "
@@ -527,6 +562,10 @@ def main() -> int:
         print(f"  주의: 찾지 못한 로컬 파일 {len(inl.missing)}개: {', '.join(sorted(set(inl.missing))[:8])}")
     if inl.remote:
         print(f"  인터넷에서 불러오는 주소(발표할 때 인터넷 필요): {', '.join(sorted(inl.remote))}")
+    if sheet:
+        print(f"  미리보기 모아보기: {sheet}")
+    for slide_no, msg in problems[:10]:
+        print(f"  주의: 슬라이드 {slide_no} 를 열 때 스크립트 오류 - {msg}")
     if not browser:
         print("  주의: Edge·Chrome 을 찾지 못해 미리보기를 안내 그림으로 대신했습니다(--browser 로 경로 지정).")
     elif drawn < n:

@@ -89,7 +89,10 @@ def main() -> None:
         manifest(DEAD, "https://localhost:3999/index.html", "Live HTML unreachable"), encoding="utf-8")
     for label, size in (("Z1", 500_000), ("Z2", 1_000_000), ("Z3", 1_900_000), ("Z4", 4_000_000), ("Z5", 10_000_000)):
         pad_html(deck, out / f"{label}.pptx", size)
-    (out / "manifest-control.xml").write_text(
+    # The control manifest lives under a folder with Korean letters and a space, like a Korean user profile.
+    korean = out / "\ud55c\uae00 \uacbd\ub85c"
+    korean.mkdir(exist_ok=True)
+    (korean / "manifest-control.xml").write_text(
         manifest(CONTROL, "https://localhost:3000/index.html?m=control", "Live HTML control"), encoding="utf-8")
     (out / "manifest-public.xml").write_text(
         manifest(PUBLIC, "https://example.com/", "Live HTML public page"), encoding="utf-8")

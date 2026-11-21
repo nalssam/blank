@@ -86,6 +86,14 @@ class Html(unittest.TestCase):
             self.assertEqual(B.read_text(b), "한글")
 
 
+class ConsoleLog(unittest.TestCase):
+    def test_both_chrome_log_formats(self):
+        new_style = '[1:1:1121/0328.89:INFO:CONSOLE:3] "Uncaught ReferenceError: f is not defined", source: file:///t/s.html (3)'
+        old_style = '[1121/0328:INFO:CONSOLE(12)] "Uncaught TypeError: x", source: file:///t/s.html (12)'
+        self.assertEqual(B.CONSOLE_RE.search(new_style).group(1), "Uncaught ReferenceError: f is not defined")
+        self.assertEqual(B.CONSOLE_RE.search(old_style).group(3), "12")
+
+
 class Inline(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

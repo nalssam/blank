@@ -76,7 +76,8 @@ jobs:
           Run 'status' 'python html-in-ppt\scripts\register_addin.py --manifest C:\live\manifest.xml --status'
           # control manifests for the diagnosis matrix (registered directly)
           $dev = 'HKCU:\SOFTWARE\Microsoft\Office\16.0\Wef\Developer'
-          Set-ItemProperty -Path $dev -Name '0d1b6a3e-52a7-4b1c-9a39-7e2f4c1d8b55' -Value 'C:\live\variants\manifest-control.xml'
+          $korean = (Get-ChildItem C:\live\variants -Directory | Select-Object -First 1).FullName   # folder with Korean letters and a space
+          Set-ItemProperty -Path $dev -Name '0d1b6a3e-52a7-4b1c-9a39-7e2f4c1d8b55' -Value (Join-Path $korean 'manifest-control.xml')
           Set-ItemProperty -Path $dev -Name '3c9e2f71-8a44-4d0b-b6f5-1e7a90c2d4b8' -Value 'C:\live\variants\manifest-public.xml'
           Set-ItemProperty -Path $dev -Name '5b7d9f13-2c4e-4a6b-8d0f-3a5c7e9b1d2f' -Value 'C:\live\variants\manifest-dead.xml'
           'build ok'
@@ -86,7 +87,7 @@ jobs:
         continue-on-error: true
         run: |
           cmd /c "npx --yes office-addin-manifest validate C:\live\manifest.xml > C:\live\logs\validate-ours.txt 2>&1"
-          cmd /c "npx --yes office-addin-manifest validate C:\live\variants\manifest-control.xml > C:\live\logs\validate-control.txt 2>&1"
+          cmd /c "npx --yes office-addin-manifest validate C:\live\variants\manifest-public.xml > C:\live\logs\validate-control.txt 2>&1"
           Get-Content C:\live\logs\validate-ours.txt -Tail 12
 
       - name: Run the deck in PowerPoint
